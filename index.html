@@ -112,7 +112,7 @@ body.narrow #mphoto input{flex:1;width:auto}
 <aside id="panel">
   <header>
     <h1>Skyline Views</h1>
-    <div class="sub">1 bed · 733 sq ft interior · 147 sq ft covered deck</div>
+    <div class="sub">1 bed · 68 m² interior · 13.7 m² covered deck</div>
     <span class="chip">From listing plan · verify Monday</span>
   </header>
   <div id="scroll">
@@ -134,7 +134,6 @@ body.narrow #mphoto input{flex:1;width:auto}
 
     <section>
       <h2>Display</h2>
-      <div class="row"><label for="cut">Cut walls at 4 ft</label><input type="checkbox" id="cut"></div>
       <div class="row"><label for="doors">Doors open</label><input type="checkbox" id="doors" checked></div>
       <div class="row"><label for="lbl">Room labels</label><input type="checkbox" id="lbl" checked></div>
       <div class="row"><label for="lights">Ceiling lights on</label><input type="checkbox" id="lights" checked></div>
@@ -147,14 +146,14 @@ body.narrow #mphoto input{flex:1;width:auto}
 
     <section>
       <h2>Daylight</h2>
-      <div class="row"><label for="tod">Time</label><input id="tod" type="range" min="6" max="19.5" step="0.25" value="15"><span class="val" id="todv">15:00</span></div>
+      <div class="row"><label for="tod">Time</label><input id="tod" type="range" min="6" max="19.5" step="0.25" value="10"><span class="val" id="todv">10:00</span></div>
       <div class="row"><label for="season">Date</label>
         <select id="season"><option value="-21.5">Late Nov (move-in)</option><option value="-23.44">Dec 21</option><option value="0">Mar / Sep 21</option><option value="23.44">Jun 21</option></select></div>
-      <p class="note">North is up on the plan. The living-room windows face north toward the street, the deck and bedroom window face west over the lower roof, and the kitchen wall on the east is the lot line.</p>
+      <p class="note">North is up in Plan view. The living-room windows face east, with the downtown skyline to the southeast (on your right as you look out). The deck and bedroom window face north toward the street, over the lower roof. Morning sun comes in through the living room.</p>
     </section>
 
     <section class="assume">
-      <h2>Heights to measure (inches)</h2>
+      <h2>Heights to measure (cm)</h2>
       <div id="assume"></div>
       <div class="btns" style="margin-top:8px"><button class="btn" id="areset">Reset to estimates</button></div>
       <p class="note">These are estimated from the photos because the floor plan has no heights. Change them on Monday and the model rebuilds. Floor-plan dimensions come from <code>plan-data.js</code>.</p>
@@ -214,7 +213,7 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.35;
 
-const persp = new THREE.PerspectiveCamera(60, 1, 0.03, 30000);
+const persp = new THREE.PerspectiveCamera(60, 1, 0.08, 25000);
 persp.rotation.order = 'YXZ';
 const ortho = new THREE.OrthographicCamera(-1,1,1,-1,0.1,500);
 let camera = persp;
@@ -435,7 +434,7 @@ function build(){
   const floorMat={living:M.hardwood,kitchen:M.hardwood,foyer:M.hardwood,laundry_closet:M.hardwood,bedroom:M.carpet,wic:M.carpet,bath:M.marble};
   for(const [k,r] of Object.entries(R)){
     if(k==='balcony') continue;
-    box(root,r.x0,r.x1,-0.6,0,r.z0,r.z1,floorMat[k],{cast:false});
+    box(root,r.x0,r.x1,-2.2,0,r.z0,r.z1,floorMat[k],{cast:false});
     const ch=LOWROOMS.has(k)?H.ceilLow:H.ceilMain;
     const c=box(root,r.x0,r.x1,ch,ch+0.6,r.z0,r.z1,M.ceiling,{cast:true}); c.userData.ceiling=true; ceilings.push(c);
   }
@@ -443,7 +442,7 @@ function build(){
   for(const o of OP) if(o.kind!=='window'){ const w=W[o.wall], hor=(w.x1-w.x0)>=(w.z1-w.z0);
     if(hor) box(root,o.from,o.to,-0.6,0,w.z0,w.z1,M[o.thr],{cast:false}); else box(root,w.x0,w.x1,-0.6,0,o.from,o.to,M[o.thr],{cast:false}); }
   // structural slab under the unit
-  box(root,0,462.7,-12,-0.6,0,351.2,M.concrete,{cast:false});
+  box(root,0,462.7,-12,-2.2,0,351.2,M.concrete,{cast:false});
 
   /* --- baseboards --- */
   const skip={living:{E:[[0,999]]},kitchen:{W:[[0,999]],S:[[R.foyer.x0,R.foyer.x1]]},foyer:{N:[[0,999]]}};
@@ -694,8 +693,7 @@ function buildLaundry(){
 /* --- covered deck: masonry wall with window opening, stucco walls, railing with privacy screen --- */
 function buildBalcony(){
   const b=R.balcony;
-  box(root,0,b.x1,-1.6,-0.6,b.z0,b.z1,M.deck,{cast:false});
-  box(root,0,b.x1+6.4,-12,-1.6,0,b.z1+6,M.concrete,{cast:false});
+  box(root,0,b.x1,-2.2,-0.6,b.z0,b.z1,M.deck,{cast:false});
   box(root,b.x0,b.x1,-1,5,b.z0,b.z0+3,M.concrete); box(root,b.x0,b.x1,-1,5,b.z1-3,b.z1,M.concrete); box(root,b.x1-3,b.x1,-1,5,b.z0,b.z1,M.concrete);
   const rf=box(root,0,b.x1+6.4,H.ceilMain,H.ceilMain+14,0,b.z1+6,[M.stucco,M.stucco,M.cut,M.stucco,M.stucco,M.stucco]); rf.userData.ceiling=true; ceilings.push(rf);
   // railing on the open (north) side
@@ -713,38 +711,46 @@ function buildSurroundings(){
   // The 5th floor sits back from the 4-storey building below: ~18 ft from the street (north) and ~12 ft from the west edge,
   // flush with the east lot line. Proportions read off the Google Maps aerial; unit = NE corner of the 5th floor.
   surroundGroup=new THREE.Group(); root.add(surroundGroup);
-  const top=H.ceilMain+14, bx0=-140, bx1=462.7, bz0=-221, bz1=700, roofY=-14;
-  const roofMat=std({color:0xd9d6cf,roughness:.95});
-  box(root,bx0,bx1,-630,roofY,bz0,bz1,[M.brick,M.brick,roofMat,M.brick,M.brick,M.brick],{cast:false});
-  box(root,bx0,bx1,roofY,roofY+30,bz0,bz0+8,[M.brick,M.brick,M.concrete,M.brick,M.brick,M.brick]);      // parapet on the street side
-  box(root,bx0,bx0+8,roofY,roofY+30,bz0,bz1,[M.brick,M.brick,M.concrete,M.brick,M.brick,M.brick]);      // west parapet
-  box(root,bx1-8,bx1,roofY,roofY+30,bz0,-0.5,[M.brick,M.brick,M.concrete,M.brick,M.brick,M.brick]);    // east parapet
-  // rest of the 5th floor (corridor, stairs, other units) south of the unit
-  box(surroundGroup,0,bx1,-12,top,351.2+0.5,473,[M.brick,M.brick,M.concrete,M.cmu,M.cmu,M.cmu]);
+  // Model axes: north = -x (plan left), east = -z (plan top). Unit = NE corner of the 5th floor:
+  // its north face is x=0 (deck railing, bedroom window) and its east face z=0 (living windows, flush with the lot line).
+  const top=H.ceilMain+14, nx=-221, sx=1144, wz=910, ph=700, roofY=-14;   // ph = extent of the 5th floor to the south / west
+  const roofMat=std({color:0xd9d6cf,roughness:.95}); const B=[M.brick,M.brick,M.concrete,M.brick,M.brick,M.brick];
+  box(root,nx,sx,-630,roofY,0,wz,[M.brick,M.brick,roofMat,M.brick,M.brick,M.brick],{cast:false});
+  box(root,nx,nx+8,roofY,roofY+30,0,wz,B);            // parapet on the street side
+  box(root,nx,-0.5,roofY,roofY+30,0,8,B);             // east parapet, north of the unit
+  box(root,nx,sx,roofY,roofY+30,wz-8,wz,B);           // west parapet
+  // rest of the 5th floor (corridor, stairs, other units) south and west of the unit
+  const P5=[M.brick,M.brick,M.concrete,M.brick,M.cmu,M.cmu];
+  box(surroundGroup,462.7+0.5,ph,-12,top,0,ph,P5);
+  box(surroundGroup,211.9+0.5,462.7+0.5,-12,top,264.4+0.5,ph,P5);
+  box(surroundGroup,0,211.9+0.5,-12,top,351.2+0.5,ph,P5);
   // roof over the unit (seen from outside / the deck)
-  box(surroundGroup,148.6,bx1,top-13,top,0,351.2,[M.cmu,M.cmu,roofMat,M.stucco,M.cmu,M.cmu]);
-  box(surroundGroup,0,148.6,top-13,top,167.6,351.2,[M.cmu,M.cmu,roofMat,M.stucco,M.cmu,M.cmu]);
+  const RF=[M.cmu,M.cmu,roofMat,M.stucco,M.cmu,M.cmu];
+  box(surroundGroup,148.6,462.7,top-13,top,0,264.4,RF);
+  box(surroundGroup,0,148.6,top-13,top,167.6,351.2,RF);
+  box(surroundGroup,148.6,211.9,top-13,top,264.4,351.2,RF);
 }
 function buildCity(){
   if(cityGroup) return; cityGroup=new THREE.Group(); scene.add(cityGroup);
   const groundY=-16.3;
-  const ground=new THREE.Mesh(new THREE.PlaneGeometry(40000,40000),std({color:0x6f6c66,roughness:1})); ground.rotation.x=-Math.PI/2; ground.position.y=groundY; ground.receiveShadow=true; cityGroup.add(ground);
-  const road=new THREE.Mesh(new THREE.PlaneGeometry(3000,15),std({color:0x3c3d3f,roughness:1})); road.rotation.x=-Math.PI/2; road.position.set(0,groundY+0.02,-15); cityGroup.add(road);
-  const side=std({color:0xa9a59d,roughness:1}); for(const z of [-6.5,-23.5]){ const sw=new THREE.Mesh(new THREE.PlaneGeometry(3000,3),side); sw.rotation.x=-Math.PI/2; sw.position.set(0,groundY+0.03,z); cityGroup.add(sw); }
+  const ground=new THREE.Mesh(new THREE.PlaneGeometry(24000,24000),std({color:0x6f6c66,roughness:1})); ground.rotation.x=-Math.PI/2; ground.position.y=groundY; ground.receiveShadow=true; cityGroup.add(ground);
+  // the street runs east-west (along z) north of the building
+  const road=new THREE.Mesh(new THREE.PlaneGeometry(15,3000),std({color:0x3c3d3f,roughness:1,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2})); road.rotation.x=-Math.PI/2; road.position.set(-16,groundY+0.12,0); cityGroup.add(road);
+  const side=std({color:0xa9a59d,roughness:1,polygonOffset:true,polygonOffsetFactor:-4,polygonOffsetUnits:-4}); for(const x of [-7.1,-25]){ const sw=new THREE.Mesh(new THREE.PlaneGeometry(3,3000),side); sw.rotation.x=-Math.PI/2; sw.position.set(x,groundY+0.25,0); cityGroup.add(sw); }
   const nb=(x0,x1,z0,z1,h,col)=>{ const m=new THREE.Mesh(new THREE.BoxGeometry(x1-x0,h,z1-z0),std({color:col,roughness:.95})); m.position.set((x0+x1)/2,groundY+h/2,(z0+z1)/2); m.receiveShadow=m.castShadow=true; cityGroup.add(m); };
-  nb(11.9,26,-5.6,22,8.5,0xb9a68c);   // low neighbour to the east (lot line)
-  nb(-16,-4.3,-5.6,10,9.5,0xcfc6b5);   // corner store to the west
-  nb(-16,-4.3,10.5,17,7,0xc8bfae);
+  nb(-5.6,25,-14,-0.3,8.5,0xb9a68c);   // low neighbour to the east (lot line)
+  nb(-5.6,10,23.6,34,9.5,0xcfc6b5);    // corner store to the west
+  nb(10.5,17,23.6,34,7,0xc8bfae);
   const R2=rng(99); const geo=new THREE.BoxGeometry(1,1,1); geo.translate(0,0.5,0);
   const near=new THREE.InstancedMesh(geo,std({roughness:.95}),900); let n=0; const m=new THREE.Matrix4(), c=new THREE.Color();
   for(let i=0;i<4000&&n<900;i++){
-    const x=(R2()-0.5)*1400, z=(R2()-0.5)*1400; if(x>-30&&x<40&&z>-9&&z<40) continue; if(z>-26&&z<-4) continue; if(Math.abs((x%110))<9) continue;
+    const x=(R2()-0.5)*1400, z=(R2()-0.5)*1400; if(x>-10&&x<33&&z>-16&&z<36) continue; if(x>-28&&x<-4) continue; if(Math.abs((z%110))<9) continue;
     const w=8+R2()*16, d=10+R2()*22, h=6+R2()*10*(R2()<0.08?2.2:1);
     m.compose(new THREE.Vector3(x,groundY,z),new THREE.Quaternion(),new THREE.Vector3(w,h,d)); near.setMatrixAt(n,m);
     c.setHSL(0.06+R2()*0.04,0.25+R2()*0.25,0.32+R2()*0.25); near.setColorAt(n,c); n++; }
   near.count=n; near.castShadow=false; near.receiveShadow=true; cityGroup.add(near);
-  // downtown: ~8.5 km to the southeast (east = +x, south = +z in this model)
-  const dir=new THREE.Vector3(1,0,1).normalize(); const center=dir.clone().multiplyScalar(8500);
+  // downtown: ~8.5 km to the southeast (south = +x, east = -z in this model)
+  const dir=new THREE.Vector3(1,0,-1).normalize(); const center=dir.clone().multiplyScalar(8500);
   const towers=new THREE.InstancedMesh(geo,std({color:0x8a97a6,roughness:.6,metalness:.2}),140); let k=0;
   for(let i=0;i<140;i++){ const off=new THREE.Vector3((R2()-0.5)*1600,0,(R2()-0.5)*1600); const h=40+Math.pow(R2(),2.2)*300+(i<3?[442-40,344-40,262][i]:0);
     m.compose(center.clone().add(off).setY(groundY),new THREE.Quaternion(),new THREE.Vector3(30+R2()*40,h,30+R2()*40)); towers.setMatrixAt(k,m); c.setHSL(0.58,0.12,0.5+R2()*0.18); towers.setColorAt(k,c); k++; }
@@ -763,7 +769,7 @@ function updateSun(){
   const Hr=(t-12.6)*15*Math.PI/180;  // ~12:36 solar noon (standard time)
   const alt=Math.asin(Math.sin(lat)*Math.sin(dec)+Math.cos(lat)*Math.cos(dec)*Math.cos(Hr));
   const az=Math.atan2(Math.sin(Hr),Math.cos(Hr)*Math.sin(lat)-Math.tan(dec)*Math.cos(lat))+Math.PI; // from north, clockwise
-  const v=new THREE.Vector3(Math.sin(az)*Math.cos(alt),Math.sin(alt),-Math.cos(az)*Math.cos(alt));  // north = -z, east = +x
+  const v=new THREE.Vector3(-Math.cos(az)*Math.cos(alt),Math.sin(alt),-Math.sin(az)*Math.cos(alt));  // north = -x, east = -z
   skyMesh.material.uniforms.sunPosition.value.copy(v);
   const ctr=new THREE.Vector3(231*IN,0,175*IN); sun.target.position.copy(ctr); sun.position.copy(ctr).addScaledVector(v,40);
   const up=Math.max(0,Math.sin(alt)); sun.intensity=alt>0?2.0+2.2*Math.min(1,up*2.5):0;
@@ -801,18 +807,18 @@ function buildLights(){
 }
 
 /* --- room labels --- */
-const fmt=i=>{ const t=Math.round(i); return `${Math.floor(t/12)}′${t%12}″`; };
+const fmt=i=>`${(i*0.0254).toFixed(2)} m`; const m2=i=>(i*0.0254).toFixed(2);
 const NAMES={living:'Living',kitchen:'Kitchen',bedroom:'Bedroom',wic:'Walk-in closet',bath:'Bath',foyer:'Foyer',balcony:'Covered deck',laundry_closet:'Laundry'};
 function buildLabels(){
   for(const [k,r] of Object.entries(R)){
-    const el=document.createElement('div'); el.className='rlabel'; el.innerHTML=`<b>${NAMES[k]}</b><span>${fmt(r.x1-r.x0)} × ${fmt(r.z1-r.z0)}</span>`;
+    const el=document.createElement('div'); el.className='rlabel'; el.innerHTML=`<b>${NAMES[k]}</b><span>${m2(r.x1-r.x0)} × ${m2(r.z1-r.z0)} m</span>`;
     const o=new CSS2DObject(el); o.position.set((r.x0+r.x1)/2,6,(r.z0+r.z1)/2+(k==='kitchen'?30:0)); root.add(o); labelObjs.push(o); }
 }
 
 /* ------------------------------------------------------------------ display state */
 let mode='dollhouse', photoMode=null;
 function applyDisplay(){
-  const cut=$('#cut').checked && mode!=='walk';
+  const cut=false;
   renderer.clippingPlanes = (mode==='plan'||cut)?[new THREE.Plane(new THREE.Vector3(0,-1,0),48*IN)]:[];
   for(const c of ceilings) c.visible = (mode==='walk');
   for(const o of labelObjs) o.visible = $('#lbl').checked && mode!=='walk';
@@ -827,12 +833,12 @@ function applyDisplay(){
 /* ------------------------------------------------------------------ cameras & controls */
 const CENTER=new THREE.Vector3(231*IN,0,175*IN);
 const orbit=new OrbitControls(persp,renderer.domElement); orbit.target.copy(CENTER); orbit.maxPolarAngle=Math.PI*0.49; orbit.enableDamping=true; orbit.minDistance=1; orbit.maxDistance=60;
-ortho.up.set(0,0,-1);
+ortho.up.set(-1,0,0);   // plan view: north up
 const pan=new OrbitControls(ortho,renderer.domElement); pan.enableRotate=false; pan.screenSpacePanning=true; pan.target.copy(CENTER); pan.enabled=false; pan.zoomToCursor=true;
 pan.mouseButtons={LEFT:THREE.MOUSE.PAN,MIDDLE:THREE.MOUSE.DOLLY,RIGHT:THREE.MOUSE.PAN}; pan.touches={ONE:THREE.TOUCH.PAN,TWO:THREE.TOUCH.DOLLY_PAN};
 
 const walker={x:300,z:120,eye:60,yaw:0,pitch:0};
-function setDollhouse(){ persp.fov=45; persp.position.set(CENTER.x-1.5,13.5,CENTER.z+9.5); orbit.target.copy(CENTER); persp.updateProjectionMatrix(); orbit.update(); }
+function setDollhouse(){ persp.fov=45; persp.position.set(CENTER.x+10.5,13.5,CENTER.z+1.5); orbit.target.copy(CENTER); persp.updateProjectionMatrix(); orbit.update(); }
 function setMode(m, keepPose){
   mode=m; document.querySelectorAll('#modes button,#mbar button').forEach(b=>b.classList.toggle('on',b.dataset.m===m)); document.body.classList.toggle('walk',m==='walk');
   orbit.enabled = m==='dollhouse'; pan.enabled = m==='plan';
@@ -849,7 +855,7 @@ function hud(){
   const h={dollhouse:'Drag to orbit · Right-drag or two fingers to pan · Scroll to zoom · Double-click a spot to walk there',
     walk: locked ? 'Move the mouse to look · <kbd>W A S D</kbd> to move · <kbd>Shift</kbd> faster · <kbd>Q</kbd>/<kbd>E</kbd> eye height · Double-click to walk to the spot in the crosshair · <kbd>Esc</kbd> frees the cursor'
                  : 'Click the view to look around with the mouse · <kbd>W A S D</kbd> or arrows to move · Scroll to step · Double-click the floor to jump there',
-    plan:'Drag to pan · Scroll to zoom · Plan cut at 4 ft · North is up'}[mode];
+    plan:'Drag to pan · Scroll to zoom · Plan cut at 1.2 m · North is up'}[mode];
   $('#hud').innerHTML=(measuring?'Measure: click two points · ':'')+h;
 }
 document.querySelectorAll('#modes button,#mbar button').forEach(b=>b.onclick=()=>setMode(b.dataset.m));
@@ -925,19 +931,19 @@ $('#mclear').onclick=()=>{ mGroup.children.slice().forEach(o=>{ mGroup.remove(o)
 function measureClick(e){ const h=pick(e); if(!h) return; const p=h.point.clone();
   const dot=new THREE.Mesh(new THREE.SphereGeometry(0.035,16,12),new THREE.MeshBasicMaterial({color:0xc2410c,depthTest:false})); dot.renderOrder=10; dot.position.copy(p); mGroup.add(dot); mPts.push(p);
   if(mPts.length===2){ const [a,b]=mPts; const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([a,b]),new THREE.LineBasicMaterial({color:0xc2410c,depthTest:false})); line.renderOrder=10; mGroup.add(line);
-    const d=a.distanceTo(b)/IN; const el=document.createElement('div'); el.className='mlabel'; const ft=Math.floor(d/12), inch=(d-ft*12); el.textContent=`${ft}′ ${inch.toFixed(1)}″  (${(d*2.54).toFixed(0)} cm)`;
+    const d=a.distanceTo(b)/IN; const el=document.createElement('div'); el.className='mlabel'; el.textContent=d*2.54<100?`${(d*2.54).toFixed(1)} cm`:`${(d*0.0254).toFixed(2)} m`;
     const lo=new CSS2DObject(el); lo.position.copy(a.clone().add(b).multiplyScalar(0.5)); mGroup.add(lo); mPts=[]; } }
 
 /* ------------------------------------------------------------------ assumptions panel */
 function buildAssume(){ const box=$('#assume'); box.innerHTML='';
   for(const k of Object.keys(DEF)){ const row=document.createElement('div'); row.className='row';
-    row.innerHTML=`<label for="a_${k}">${ALABELS[k]}</label><span style="display:flex;gap:6px;align-items:center"><span class="ft" id="f_${k}">${fmt(H[k])}</span><input type="number" id="a_${k}" step="0.5" value="${H[k]}"></span>`;
-    box.appendChild(row); row.querySelector('input').onchange=e=>{ const v=parseFloat(e.target.value); if(!isFinite(v)) return; H[k]=v; $('#f_'+k).textContent=fmt(v);
+    row.innerHTML=`<label for="a_${k}">${ALABELS[k]}</label><span style="display:flex;gap:6px;align-items:center"><input type="number" id="a_${k}" step="0.5" value="${Math.round(H[k]*25.4)/10}"></span>`;
+    box.appendChild(row); row.querySelector('input').onchange=e=>{ const v=parseFloat(e.target.value); if(!isFinite(v)) return; H[k]=v/2.54;
       try{ localStorage.setItem('condo5ne.heights',JSON.stringify(H)); }catch(_){} build(); }; } }
 $('#areset').onclick=()=>{ H={...DEF}; try{ localStorage.removeItem('condo5ne.heights'); }catch(_){} buildAssume(); build(); };
 
 /* ------------------------------------------------------------------ wiring */
-for(const id of ['cut','lbl','lights','fire','sur']) $('#'+id).onchange=applyDisplay;
+for(const id of ['lbl','lights','fire','sur']) $('#'+id).onchange=applyDisplay;
 $('#doors').onchange=e=>{ doorsOpen=e.target.checked; applyDoors(); };
 $('#exp').oninput=e=>{ $('#expv').textContent=parseFloat(e.target.value).toFixed(2); applyDisplay(); };
 $('#tod').oninput=updateSun; $('#season').onchange=updateSun;
@@ -948,7 +954,7 @@ function resize(){
   if(photoMode){ const panelW=NARROW()?0:342; const aw=vw-panelW-24, ah=vh-70; if(aw/ah>1.5){ h=ah; w=h*1.5; } else { w=aw; h=w/1.5; } l=panelW+(vw-panelW-w)/2; t=(vh-h)/2-12; }
   Object.assign(stage.style,{left:l+'px',top:t+'px',width:w+'px',height:h+'px'});
   renderer.setSize(w,h); labelR.setSize(w,h); persp.aspect=w/h; persp.updateProjectionMatrix();
-  const span=560*IN; const a=w/h; ortho.left=-span*a/2; ortho.right=span*a/2; ortho.top=span/2; ortho.bottom=-span/2; ortho.updateProjectionMatrix();
+  const span=520*IN; const a=w/h; ortho.left=-span*a/2; ortho.right=span*a/2; ortho.top=span/2; ortho.bottom=-span/2; ortho.updateProjectionMatrix();
 }
 addEventListener('resize',resize);
 
@@ -969,7 +975,7 @@ function loop(){
   if(fireGroup&&fireGroup.visible){ const t=performance.now()/1000; fireGroup.children.forEach((c,i)=>{ if(c.isSprite){ const k=0.82+0.22*Math.sin(t*7+i*1.7)+0.1*Math.sin(t*13+i*2.3); c.scale.y=c.userData.h*k; c.position.y=1.5+c.scale.y*0.42; } }); fireLight.intensity=3.5+0.8*Math.sin(t*9)+0.5*Math.sin(t*23); }
   // compass: north = -x in the model
   const fwd=new THREE.Vector3(); camera.getWorldDirection(fwd); let ang;
-  if(mode==='plan') ang=0; else ang=-Math.atan2(fwd.x,-fwd.z)*180/Math.PI;
+  if(mode==='plan') ang=0; else ang=-90-Math.atan2(fwd.x,-fwd.z)*180/Math.PI;
   $('#needle').setAttribute('transform',`rotate(${ang})`);
   renderer.render(scene,camera); labelR.render(scene,camera);
   requestAnimationFrame(loop);
