@@ -29,7 +29,7 @@ html,body{height:100%;margin:0;background:var(--stage);color:var(--ink);font:13p
 #stage canvas{display:block}
 #stage.photo{box-shadow:0 0 0 1px rgba(255,255,255,.15)}
 #photo{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;opacity:.5;display:none}
-#labels{position:absolute;inset:0;pointer-events:none}
+#labels{position:absolute;inset:0;pointer-events:none;z-index:1}
 .rlabel{font:500 12px/1.25 var(--sans);color:#1d2427;background:rgba(255,255,255,.86);padding:3px 7px;border-radius:4px;text-align:center;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.18)}
 .rlabel b{display:block;font-weight:600;letter-spacing:.02em}
 .rlabel span{font:11px var(--mono);color:#55606a}
@@ -74,6 +74,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 
 #hud{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(20,24,27,.78);color:#e9ecee;padding:7px 14px;border-radius:20px;font:12px var(--sans);white-space:nowrap;z-index:4;pointer-events:none;max-width:calc(100vw - 24px);overflow:hidden;text-overflow:ellipsis}
 #hud kbd{font:11px var(--mono);background:rgba(255,255,255,.14);padding:1px 5px;border-radius:3px}
+#doorhint{position:absolute;display:none;z-index:4;pointer-events:none;font:500 12px var(--sans);color:#fff;background:rgba(20,24,27,.8);padding:4px 9px;border-radius:12px;white-space:nowrap}
 #cross{position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;background:rgba(255,255,255,.9);box-shadow:0 0 0 1.5px rgba(0,0,0,.45);z-index:4;pointer-events:none}
 #compass{position:absolute;right:16px;top:14px;width:64px;height:64px;z-index:7;pointer-events:none}
 #toggle{display:none;position:absolute;top:12px;left:12px;z-index:6}
@@ -102,7 +103,7 @@ body.narrow #mphoto input{flex:1;width:auto}
 </style>
 </head>
 <body>
-<div id="stage"><div id="loading">Loading 3D model…</div><img id="photo" alt=""><div id="labels"></div><div id="cross" hidden></div></div>
+<div id="stage"><div id="loading">Loading 3D model…</div><img id="photo" alt=""><div id="labels"></div><div id="cross" hidden></div><div id="doorhint"></div></div>
 <svg id="compass" viewBox="-32 -32 64 64" aria-hidden="true"><circle r="29" fill="rgba(20,24,27,.6)"/><g id="needle"><path d="M0,-24 L6,0 L0,-4 L-6,0Z" fill="#e8553a"/><path d="M0,24 L6,0 L0,4 L-6,0Z" fill="#cfd6da"/><text y="-12" text-anchor="middle" font-size="9" font-family="IBM Plex Mono,monospace" fill="#fff" transform="translate(0,-15)">N</text></g></svg>
 <button id="toggle" class="btn">Menu</button>
 <div class="seg" id="mbar"><button data-m="dollhouse" class="on">Dollhouse</button><button data-m="walk">Walk</button><button data-m="plan">Plan</button></div>
@@ -119,7 +120,10 @@ body.narrow #mphoto input{flex:1;width:auto}
     <section>
       <h2>View</h2>
       <div class="seg" id="modes"><button data-m="dollhouse" class="on">Dollhouse</button><button data-m="walk">Walk</button><button data-m="plan">Plan</button></div>
+      <div class="btns" style="margin-top:8px"><button class="btn" id="walkin">Walk in from the hallway</button></div>
     </section>
+
+    <section id="furn" hidden></section>
 
     <section hidden>
       <h2>Photos</h2>
@@ -135,7 +139,8 @@ body.narrow #mphoto input{flex:1;width:auto}
     <section>
       <h2>Display</h2>
       <div class="row"><label for="doors">Doors open</label><input type="checkbox" id="doors" checked></div>
-      <div class="row"><label for="lbl">Room labels</label><input type="checkbox" id="lbl" checked></div>
+      <div class="row"><label for="fdoor">Front door open</label><input type="checkbox" id="fdoor"></div>
+      <div class="row"><label for="lbl">Room labels</label><input type="checkbox" id="lbl"></div>
       <div class="row"><label for="lights">Ceiling lights on</label><input type="checkbox" id="lights" checked></div>
       <div class="row"><label for="fire">Fireplace lit</label><input type="checkbox" id="fire" checked></div>
       <div class="row"><label for="sur">Building &amp; city</label><input type="checkbox" id="sur" checked></div>
@@ -163,6 +168,9 @@ body.narrow #mphoto input{flex:1;width:auto}
 <div id="hud"></div>
 
 <script src="plan-data.js"></script>
+<script src="models.js"></script>
+<script src="furnish.js"></script>
+<script src="layouts.js"></script>
 <script type="importmap">
 {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"}}
 </script>
@@ -204,6 +212,8 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.localClippingEnabled = true;
+const CLIP = [];                        // plan cut, applied to the apartment's materials only (furniture stays whole)
 stage.prepend(renderer.domElement);
 const labelR = new CSS2DRenderer({ element: $('#labels') });
 RectAreaLightUniformsLib.init();
@@ -309,6 +319,9 @@ const M = {
   trim: std({color:0xf6f5f1, roughness:.45}),
   hardwood: std({map:T.hardwood, roughness:.32, envMapIntensity:.9}),
   carpet: std({map:T.carpet, roughness:1}),
+  hallCarpet: std({map:T.carpet, color:0x8f8b84, roughness:1}),
+  hallWall: std({color:0xdedad2, roughness:.92}),
+  hallDoor: std({color:0x4a3a2c, roughness:.55}),
   marble: std({map:T.marble, roughness:.18}),
   subway: std({map:T.subway, roughness:.12}),
   granite: std({map:T.granite, roughness:.2}),
@@ -368,6 +381,9 @@ for(const [k,v] of Object.entries(P.rooms)){ const xs=v.poly.map(p=>p[0]), zs=v.
   R[k]={x0:Math.min(...xs),x1:Math.max(...xs),z0:Math.min(...zs),z1:Math.max(...zs)}; }
 const W = Object.fromEntries(P.walls.map(w=>[w.name,{name:w.name,x0:w.rect[0],z0:w.rect[1],x1:w.rect[2],z1:w.rect[3]}]));
 const roomAt=(x,z)=>{ for(const [k,r] of Object.entries(R)) if(x>=r.x0-0.01&&x<=r.x1+0.01&&z>=r.z0-0.01&&z<=r.z1+0.01) return k; return 'out'; };
+// building hallway outside the front door (not on the listing plan; a plain 5 ft corridor so you can walk in)
+const HALL = {x0:211.9, x1:456.6, z0:264.4, z1:324.4};
+const inHall=(x,z)=>x>=HALL.x0&&x<=HALL.x1&&z>=HALL.z0&&z<=HALL.z1;
 const LOW = new Set(['WIC/bath','bath/foyer','foyer/closet']);
 const LOWROOMS = new Set(['wic','bath','foyer','laundry_closet']);
 
@@ -387,6 +403,15 @@ function openings(){
   return P.openings.map(o=>({...o, ...cfg[o.name], head: cfg[o.name].head ?? H.door, sill: cfg[o.name].sill ?? 0}));
 }
 
+/* ------------------------------------------------------------------ obstacles for furniture placement (plan inches) */
+// poly: [[x,z]...] convex; y0..y1 vertical extent; kind 'hard' (walls, fixtures) or 'soft' (hearth); SWINGS = door swing areas
+let OBST=[], SWINGS=[], SURF=[], DOORWAYS=[];
+const orect=(name,x0,z0,x1,z1,y0,y1,kind='hard')=>OBST.push({name,poly:[[x0,z0],[x1,z0],[x1,z1],[x0,z1]],y0,y1,kind});
+const opoly=(name,poly,y0,y1,kind='hard')=>OBST.push({name,poly,y0,y1,kind});
+function frameRect(f,x0,x1,z0,z1){ f.updateMatrix(); return [[x0,z0],[x1,z0],[x1,z1],[x0,z1]].map(([x,z])=>{ const v=new THREE.Vector3(x,0,z).applyMatrix4(f.matrix); return [v.x,v.z]; }); }
+function swingFan(g,len,name){ const a0=g.userData.closed, a1=g.userData.open, x=g.position.x, z=g.position.z, pts=[[x,z]];
+  for(let i=0;i<=12;i++){ const a=a0+(a1-a0)*i/12; pts.push([x+len*Math.cos(a), z-len*Math.sin(a)]); } SWINGS.push({name,poly:pts}); }
+
 /* ------------------------------------------------------------------ build */
 let root, lightsGroup, doorsList=[], ceilings=[], collide=[], fireGroup, fireLight, roomLights=[], pendantGlow=[], surroundGroup, labelObjs=[];
 function clearRoot(){ if(!root) return; scene.remove(root); root.traverse(o=>{ if(o.geometry) o.geometry.dispose(); if(o.isCSS2DObject) o.element.remove(); }); scene.remove(lightsGroup); }
@@ -395,11 +420,11 @@ function build(){
   clearRoot();
   root = new THREE.Group(); root.scale.setScalar(IN); scene.add(root);
   lightsGroup = new THREE.Group(); scene.add(lightsGroup);
-  doorsList=[]; ceilings=[]; collide=[]; roomLights=[]; pendantGlow=[]; labelObjs=[];
+  doorsList=[]; ceilings=[]; collide=[]; roomLights=[]; pendantGlow=[]; labelObjs=[]; OBST=[]; SWINGS=[]; SURF=[]; DOORWAYS=[];
   const OP = openings();
 
   /* --- walls, split at junctions and openings so each face gets the right finish --- */
-  const faceMat=(x,z,wallName)=>{ const r=roomAt(x,z); if(r==='out') return M.brick; if(r==='balcony') return wallName==='ext N'?M.cmu:M.stucco; return M.paint; };
+  const faceMat=(x,z,wallName)=>{ const r=roomAt(x,z); if(r==='out') return inHall(x,z)?M.hallWall:M.brick; if(r==='balcony') return wallName==='ext N'?M.cmu:M.stucco; return M.paint; };
   for(const w of Object.values(W)){
     const hor=(w.x1-w.x0)>=(w.z1-w.z0), Hw=LOW.has(w.name)?H.ceilLow:H.ceilMain;
     const a0=hor?w.x0:w.z0, a1=hor?w.x1:w.z1; const ops=OP.filter(o=>o.wall===w.name);
@@ -416,19 +441,19 @@ function build(){
         if(y1-y0<0.05) continue;
         let mats;
         if(hor){ mats=[M.paint,M.paint,kind==='below'?M.paint:M.cut,M.paint,faceMat(mid,w.z1+3,w.name),faceMat(mid,w.z0-3,w.name)];
-          box(root,s,e,y0,y1,w.z0,w.z1,mats); if(y0===0) collide.push([s,w.z0,e,w.z1]); }
+          box(root,s,e,y0,y1,w.z0,w.z1,mats); if(y0===0) collide.push([s,w.z0,e,w.z1]); orect('a wall',s,w.z0,e,w.z1,y0,y1); }
         else { mats=[faceMat(w.x1+3,mid,w.name),faceMat(w.x0-3,mid,w.name),kind==='below'?M.paint:M.cut,M.paint,M.paint,M.paint];
-          box(root,w.x0,w.x1,y0,y1,s,e,mats); if(y0===0) collide.push([w.x0,s,w.x1,e]); }
+          box(root,w.x0,w.x1,y0,y1,s,e,mats); if(y0===0) collide.push([w.x0,s,w.x1,e]); orect('a wall',w.x0,s,w.x1,e,y0,y1); }
       }
     }
   }
   // bedroom pilaster (wall jog seen in photos)
   const pil=P.fixtures.find(f=>f.name.startsWith('bedroom pilaster')).rect;
-  box(root,pil[0],pil[2],0,H.ceilMain,pil[1],pil[3],[M.paint,M.paint,M.cut,M.paint,M.paint,M.paint]); collide.push(pil);
+  box(root,pil[0],pil[2],0,H.ceilMain,pil[1],pil[3],[M.paint,M.paint,M.cut,M.paint,M.paint,M.paint]); collide.push(pil); orect('the wall jog',pil[0],pil[1],pil[2],pil[3],0,H.ceilMain);
   // bulkhead where the lower foyer ceiling meets the kitchen
   const fy=R.foyer;
   if(H.ceilMain>H.ceilLow){ box(root,fy.x0-4,fy.x1+4,H.ceilLow,H.ceilMain,fy.z0,fy.z0+4,M.paint);
-    box(root,400,412,H.ceilLow+2,H.ceilLow+10,fy.z0-0.15,fy.z0,M.vent,{cast:false}); }
+    box(root,400,412,H.ceilLow+2,H.ceilLow+10,fy.z0-0.15,fy.z0,M.vent,{cast:false}); orect('the bulkhead',fy.x0-4,fy.z0,fy.x1+4,fy.z0+4,H.ceilLow,H.ceilMain); }
 
   /* --- floors, ceilings --- */
   const floorMat={living:M.hardwood,kitchen:M.hardwood,foyer:M.hardwood,laundry_closet:M.hardwood,bedroom:M.carpet,wic:M.carpet,bath:M.marble};
@@ -464,8 +489,9 @@ function build(){
   for(const o of OP){ if(o.kind==='window') buildWindow(o); else buildDoor(o); }
   applyDoors();
 
-  buildFireplace(); buildKitchen(); buildBath(); buildWIC(); buildLaundry(); buildBalcony(); buildSurroundings(); buildLights(); buildLabels();
+  buildFireplace(); buildKitchen(); buildBath(); buildWIC(); buildLaundry(); buildBalcony(); buildHallway(); buildSurroundings(); buildLights(); buildLabels();
   applyDisplay();
+  if(furn) furn.onBuild();
 }
 
 /* --- doors --- */
@@ -490,9 +516,10 @@ function bifoldPanel(g,W,Hh,t,style){
   if(style==='louver'){ box(g,0,W,0,Hh,-t/2,t/2,M.trim); box(g,2.2,W-2.2,3,Hh/2-1.5,-t/2-0.05,t/2+0.05,M.louver,{cast:false}); box(g,2.2,W-2.2,Hh/2+1.5,Hh-3,-t/2-0.05,t/2+0.05,M.louver,{cast:false}); }
   else { box(g,0,W,0,Hh,-t/2,t/2,M.trim); for(const sgn of [1,-1]){ box(g,2.8,W-2.8,6,Hh/2-2,sgn>0?t/2:-t/2-0.2,sgn>0?t/2+0.2:-t/2,M.trim,{cast:false}); box(g,2.8,W-2.8,Hh/2+2,Hh-6,sgn>0?t/2:-t/2-0.2,sgn>0?t/2+0.2:-t/2,M.trim,{cast:false}); } }
 }
+let curDoor=null;   // name of the opening being built (set in buildDoor)
 function hingeGroup(w,hor,along,swing,t,dir){
   // returns group with local x running from hinge across the opening when closed
-  const g=new THREE.Group(); const T=hor?(w.z1-w.z0):(w.x1-w.x0); const c=hor?(w.z0+w.z1)/2:(w.x0+w.x1)/2;
+  const g=new THREE.Group(); g.userData.door=curDoor; const T=hor?(w.z1-w.z0):(w.x1-w.x0); const c=hor?(w.z0+w.z1)/2:(w.x0+w.x1)/2;
   const across=c+swing*(T/2-t/2-0.2);
   if(hor){ g.position.set(along,0,across); g.userData.closed= dir>0?0:Math.PI; g.userData.open=-swing*Math.PI/2; }
   else { g.position.set(across,0,along); g.userData.closed=-dir*Math.PI/2; g.userData.open= swing>0?0:Math.PI; }
@@ -500,11 +527,12 @@ function hingeGroup(w,hor,along,swing,t,dir){
   root.add(g); doorsList.push(g); return g;
 }
 function buildDoor(o){
+  curDoor=o.name; if(!(o.name in DOORSTATE)) DOORSTATE[o.name]=o.name==='front entry door'?false:$('#doors').checked;
   const w=W[o.wall], hor=(w.x1-w.x0)>=(w.z1-w.z0), a=o.from, b=o.to, Hd=o.head;
   const T=hor?(w.z1-w.z0):(w.x1-w.x0), c=hor?(w.z0+w.z1)/2:(w.x0+w.x1)/2;
   // casing on room-facing sides
   for(const sg of [1,-1]){
-    const fx=hor?(a+b)/2:c+sg*(T/2+3), fz=hor?c+sg*(T/2+3):(a+b)/2; const r=roomAt(fx,fz); if(r==='out'||r==='balcony') continue;
+    const fx=hor?(a+b)/2:c+sg*(T/2+3), fz=hor?c+sg*(T/2+3):(a+b)/2; const r=roomAt(fx,fz); if((r==='out'&&!inHall(fx,fz))||r==='balcony') continue;
     const f0=c+sg*T/2, f1=c+sg*(T/2+0.75); const lo=Math.min(f0,f1), hi=Math.max(f0,f1);
     if(hor){ box(root,a-3.5,a,0,Hd,lo,hi,M.trim); box(root,b,b+3.5,0,Hd,lo,hi,M.trim); box(root,a-3.5,b+3.5,Hd,Hd+3.5,lo,hi,M.trim); }
     else { box(root,lo,hi,0,Hd,a-3.5,a,M.trim); box(root,lo,hi,0,Hd,b,b+3.5,M.trim); box(root,lo,hi,Hd,Hd+3.5,a-3.5,b+3.5,M.trim); }
@@ -513,17 +541,53 @@ function buildDoor(o){
   if(hor){ box(root,a,a+0.75,0,Hd,w.z0,w.z1,M.trim); box(root,b-0.75,b,0,Hd,w.z0,w.z1,M.trim); box(root,a,b,Hd-0.75,Hd,w.z0,w.z1,M.trim); }
   else { box(root,w.x0,w.x1,0,Hd,a,a+0.75,M.trim); box(root,w.x0,w.x1,0,Hd,b-0.75,b,M.trim); box(root,w.x0,w.x1,Hd-0.75,Hd,a,b,M.trim); }
   const A=a+0.75, B=b-0.75, Lh=Hd-0.9, t=1.375;
-  if(o.kind==='door'){ const lw=B-A-0.3; const g=hingeGroup(w,hor,o.hinge==='from'?A:B,o.swing,t,o.hinge==='from'?1:-1); sixPanel(g,lw,Lh,t); if(o.name==='front entry door') g.userData.keepClosed=true;
+  DOORWAYS.push({name:o.name, poly:hor?[[a,w.z0],[b,w.z0],[b,w.z1],[a,w.z1]]:[[w.x0,a],[w.x1,a],[w.x1,b],[w.x0,b]], y0:0, y1:Hd});
+  if(o.kind==='door'){ const lw=B-A-0.3; const g=hingeGroup(w,hor,o.hinge==='from'?A:B,o.swing,t,o.hinge==='from'?1:-1); sixPanel(g,lw,Lh,t); swingFan(g,lw,o.name+' swing'); if(o.name==='front entry door') g.userData.front=true;
     if(o.name==='front entry door'){ const d=new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.1,1.6,20),M.nickel); d.rotation.x=Math.PI/2; d.position.set(lw-2.6,42,-(t/2+0.8)); g.add(d); } }
-  if(o.kind==='french'){ const lw=(B-A)/2-0.2; frenchLeaf(hingeGroup(w,hor,A,o.swing,1.75,1),lw,Lh,1.75,2,5); frenchLeaf(hingeGroup(w,hor,B,o.swing,1.75,-1),lw,Lh,1.75,2,5); }
+  if(o.kind==='french'){ const lw=(B-A)/2-0.2; for(const [h,d] of [[A,1],[B,-1]]){ const g=hingeGroup(w,hor,h,o.swing,1.75,d); frenchLeaf(g,lw,Lh,1.75,2,5); swingFan(g,lw,'French door swing'); } }
   if(o.kind==='bifold'){ const sw=(B-A)/2, pw=sw/2-0.15, t2=1.125;
     for(const [hinge,dir] of [[A,1],[B,-1]]){
       const g=hingeGroup(w,hor,hinge,o.swing,t2,dir); bifoldPanel(g,pw,Lh,t2,o.style);
       const g2=new THREE.Group(); g.add(g2); g2.position.x=pw+0.15; g2.userData.fold=true; bifoldPanel(g2,pw,Lh,t2,o.style); g.userData.child=g2; g.userData.childSign=dir*o.swing*(hor?1:-1);
+      { const hx=g.position.x, hz=g.position.z, c=[Math.cos(g.userData.closed),-Math.sin(g.userData.closed)], op=[Math.cos(g.userData.open),-Math.sin(g.userData.open)];
+        SWINGS.push({name:o.name.replace(/\(s\)/,'')+' swing', poly:[[hx,hz],[hx+c[0]*sw,hz+c[1]*sw],[hx+c[0]*sw+op[0]*pw,hz+c[1]*sw+op[1]*pw],[hx+op[0]*pw,hz+op[1]*pw]]}); }
     } }
 }
-let doorsOpen=true;
-function applyDoors(){ for(const g of doorsList){ g.rotation.y=(doorsOpen&&!g.userData.keepClosed)?g.userData.open:g.userData.closed; if(g.userData.child){ g.userData.child.rotation.y=doorsOpen?Math.PI*0.97*(g.rotation.y-g.userData.closed>0?-1:1):0; } } }
+const DOORSTATE={};   // opening name -> open?
+const DOORLABEL={'front entry door':'front door','balcony French doors':'French doors','bedroom door':'bedroom door','WIC door(s)':'closet door','bath door':'bathroom door','laundry bifolds':'laundry doors'};
+let FRONT=null;
+function syncDoorBoxes(){ $('#fdoor').checked=!!DOORSTATE['front entry door']; const inner=Object.keys(DOORSTATE).filter(n=>n!=='front entry door'); $('#doors').checked=inner.every(n=>DOORSTATE[n]); }
+function setDoor(name,v){ DOORSTATE[name]=v; syncDoorBoxes(); applyDoors(true); }
+function setFront(v){ setDoor('front entry door',v); }
+function foldChild(g){ const c=g.userData.child; if(!c) return; const span=g.userData.open-g.userData.closed; const f=span?(g.rotation.y-g.userData.closed)/span:0;
+  c.rotation.y=Math.PI*0.97*(span>0?-1:1)*Math.max(0,Math.min(1,f)); }
+// anim=true: swing to the new state over ~half a second (see loop); otherwise jump
+function applyDoors(anim){ for(const g of doorsList){ g.userData.tgt=DOORSTATE[g.userData.door]?g.userData.open:g.userData.closed; if(!anim){ g.rotation.y=g.userData.tgt; foldChild(g); } } }
+function animateDoors(dt){ for(const g of doorsList){ const t=g.userData.tgt; if(t===undefined) continue; const d=t-g.rotation.y; if(Math.abs(d)<1e-4) continue;
+  g.rotation.y+=Math.sign(d)*Math.min(Math.abs(d),dt*3.4); foldChild(g); } }
+// which door is under the cursor (or the crosshair when the mouse is locked)? Clicking the leaf, the knob, or the frame around it counts.
+const REACH=150;   // inches (~3.8 m)
+function throughDoorway(d){   // distance (m) at which the current ray crosses the middle of doorway d, or null
+  const xs=d.poly.map(q=>q[0]), zs=d.poly.map(q=>q[1]), x0=Math.min(...xs), x1=Math.max(...xs), z0=Math.min(...zs), z1=Math.max(...zs);
+  const o=ray.ray.origin.clone().divideScalar(IN), v=ray.ray.direction, alongX=(x1-x0)>(z1-z0);
+  const c=alongX?(z0+z1)/2:(x0+x1)/2, oc=alongX?o.z:o.x, vc=alongX?v.z:v.x; if(Math.abs(vc)<1e-6) return null;
+  const t=(c-oc)/vc; if(t<=0) return null; const p=o.clone().addScaledVector(v,t);
+  const a=alongX?p.x:p.z, lo=alongX?x0:z0, hi=alongX?x1:z1; return (a>=lo&&a<=hi&&p.y>=0&&p.y<=d.y1)?t*IN:null; }
+function doorAt(e){
+  if(mode!=='walk') return null;
+  const r=renderer.domElement.getBoundingClientRect(); const v=locked||!e?new THREE.Vector2(0,0):new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1);
+  ray.setFromCamera(v,camera); const hits=ray.intersectObject(root,true);
+  for(const h of hits){ const o=h.object; if(!o.visible||!o.parent.visible||o.material===M.screen) continue;
+    let name=null; for(let q=o;q;q=q.parent) if(q.userData.door){ name=q.userData.door; break; }
+    if(!name&&o.material===M.glass) continue;
+    if(h.distance/IN>REACH) return null;
+    // looking through another doorway at a door beyond it doesn't count (e.g. the laundry doors seen through the front door)
+    for(const d of DOORWAYS){ if(d.name===name) continue; const t=throughDoorway(d); if(t!==null&&t<h.distance-0.02) return null; }
+    if(!name){ const p=h.point.clone().divideScalar(IN);   // near miss on the casing / jamb
+      for(const d of DOORWAYS){ const xs=d.poly.map(q=>q[0]), zs=d.poly.map(q=>q[1]); if(p.y<d.y1+4&&p.x>Math.min(...xs)-5&&p.x<Math.max(...xs)+5&&p.z>Math.min(...zs)-5&&p.z<Math.max(...zs)+5){ name=d.name; break; } } }
+    return name; }
+  return null;
+}
 
 /* --- windows: white vinyl double-hung set near the outside face, drywall returns inside (as in the photos) --- */
 function buildWindow(o){
@@ -554,14 +618,17 @@ function buildWindow(o){
   }
 }
 
-/* --- fireplace: corner gas unit in a chase, granite tile surround, granite hearth --- */
+/* --- fireplace: corner gas unit in a granite-tiled box (flat top at 50"), granite hearth --- */
 function buildFireplace(){
   const x0=R.living.x0, z0=R.living.z0, s=44, ret=8;
   const shape=new THREE.Shape(); shape.moveTo(x0,z0); shape.lineTo(x0+s,z0); shape.lineTo(x0+s,z0+ret); shape.lineTo(x0+ret,z0+s); shape.lineTo(x0,z0+s); shape.closePath();
-  const geo=new THREE.ExtrudeGeometry(shape,{depth:H.ceilMain,bevelEnabled:false}); geo.rotateX(Math.PI/2); geo.translate(0,H.ceilMain,0);
-  const chase=new THREE.Mesh(geo,M.paint); chase.castShadow=chase.receiveShadow=true; root.add(chase);
+  const FH=50;                                            // surround height: flat granite top (the TV stands on it), open corner above (photos p07/p08)
+  const geo=new THREE.ExtrudeGeometry(shape,{depth:FH,bevelEnabled:false}); geo.rotateX(Math.PI/2); geo.translate(0,FH,0);
+  const chase=new THREE.Mesh(geo,M.fpTile); chase.castShadow=chase.receiveShadow=true; root.add(chase);
   collide.push([x0,z0,x0+s,z0+ret+6],[x0,z0,x0+ret+6,z0+s],[x0,z0,x0+30,z0+30]);
   const f=frame(root,x0+ret,z0+s,x0+s,z0+ret); const L=f.userData.len;
+  opoly('the fireplace',[[x0,z0],[x0+s,z0],[x0+s,z0+ret],[x0+ret,z0+s],[x0,z0+s]],0,FH); opoly('the fireplace',frameRect(f,0,L,0,0.8),0,50);
+  opoly('the fireplace',frameRect(f,L/2-19,L/2+19,0,2.4),6,36); opoly('the hearth',frameRect(f,-1,L+1,0.8,15),0,0.9,'soft');
   box(f,0,L,0,50,0,0.8,M.fpTile);
   box(f,-1,L+1,0,0.9,0.8,15,M.fpTile,{cast:false});
   const cx=L/2, fb=M.black;
@@ -615,6 +682,11 @@ function buildKitchen(){
   for(const [a,b,k] of uppers){ const y0=k==='over'?ub+30:k==='sink'?ub+6:ub; box(f,a,b,y0,ut,-D,-D+ud-0.75,M.oak); if(b-a>8) cabFront(f,a,b,y0,ut,-D+ud-0.75,false); else box(f,a,b,y0,ut,-D+ud-0.75,-D+ud,M.oak); }
   box(f,0,L,ut,ut+2.2,-D,-D+ud+1.2,M.oak);
   collide.push([frx,zN,wallX,zS]);
+  orect('the kitchen counter',frx-1,zN,wallX,zS,0,Hc); orect('the backsplash',wallX-0.75,zN,wallX,zS,Hc,Hc+4);
+  orect('the range',wallX-3,zN+5.7,wallX,zN+35.7,Hc,Hc+8); orect('the sink',frx+3,zN+83,frx+19,zN+109,Hc-8,Hc+0.5); orect('the faucet',frx+12,zN+95,frx+21.5,zN+97,Hc,Hc+17);
+  orect('the microwave',wallX-15.5,zN+5.7,wallX,zN+35.7,ub+12,ub+29); orect('the upper cabinets',wallX-13.2,zN,wallX,zS,ut,ut+2.2);
+  for(const [a,b,k] of uppers){ const y0=k==='over'?ub+30:k==='sink'?ub+6:ub; orect('the upper cabinets',wallX-12,zN+a,wallX,zN+Math.min(b,L),y0,ut); }
+  SURF.push({name:'the range',x0:frx,x1:wallX-3,z0:zN+6.1,z1:zN+35.3,y:Hc+1.1},{name:'the counter',x0:frx-1,x1:wallX-0.75,z0:zN+35.7,z1:zS,y:Hc});
   // fridge + cabinet above
   const fr=P.fixtures.find(f=>f.name.startsWith('fridge')).rect; const fz0=fr[1]+1, fz1=fr[3]-0.5, fx0=wallX-30;
   box(root,fx0,wallX,0.5,70,fz0,fz1,M.steel); const split=fz0+(fz1-fz0)*0.42;
@@ -623,7 +695,7 @@ function buildKitchen(){
   for(const z of [split-1.6,split+1.6]) box(root,fx0-2.6,fx0-1.6,22,58,z-0.4,z+0.4,M.steel);
   box(root,wallX-24,wallX,H.upperTop-24,H.upperTop,fz0-0.5,fz1+0.5,M.oak);
   { const g=frame(root,wallX-24,fz0-0.5,wallX-24,fz1+0.5); cabFront(g,0,g.userData.len,H.upperTop-24,H.upperTop,0,false); }
-  collide.push([fx0,fz0,wallX,fz1]);
+  collide.push([fx0,fz0,wallX,fz1]); orect('the fridge',fx0-2.6,fz0,wallX,fz1,0,70); orect('the cabinet over the fridge',wallX-24,fz0-0.5,wallX,fz1+0.5,H.upperTop-24,H.upperTop);
   // peninsula: base (oak), cabinet doors on kitchen side, 12" seating overhang on living side, black granite top
   const pn=P.fixtures.find(f=>f.name.startsWith('kitchen peninsula')).rect; const [px0,pz0,px1,pz1]=pn;
   box(root,px0+12,px1,0,cb,pz0,pz1-1.5,M.oak);
@@ -631,10 +703,13 @@ function buildKitchen(){
   { const g=frame(root,px1,pz1-1.5,px1,pz0); cabFront(g,0,g.userData.len*0.5,4,cb,0,true); cabFront(g,g.userData.len*0.5,g.userData.len,4,cb,0,true); }
   box(root,px0,px1,cb,Hc,pz0,pz1,M.graniteDark); box(root,px0,px1,Hc,Hc+4,pz0,pz0+0.75,M.graniteDark);
   collide.push([px0+10,pz0,px1,pz1]);
+  orect('the peninsula',px0+11.4,pz0,px1+1.05,pz1,0,cb); orect('the peninsula',px0,pz0,px1,pz1,cb,Hc); orect('the backsplash',px0,pz0,px1,pz0+0.75,Hc,Hc+4);
+  SURF.push({name:'the peninsula',x0:px0,x1:px1,z0:pz0+0.75,z1:pz1,y:Hc});
   // pendant over the peninsula
   const pp=new THREE.Vector3((px0+px1)/2,H.ceilMain-38,pz0+58);
   cyl(root,0.15,H.ceilMain-pp.y,pp.x,pp.y,pp.z,M.black,6);
   const dome=new THREE.Mesh(new THREE.SphereGeometry(6.5,28,14,0,Math.PI*2,0,Math.PI/2),std({color:0x3b3d3f,metalness:.7,roughness:.35,side:THREE.DoubleSide})); dome.position.copy(pp); dome.scale.y=0.7; dome.castShadow=true; root.add(dome);
+  orect('the pendant light',pp.x-6.5,pp.z-6.5,pp.x+6.5,pp.z+6.5,pp.y-0.5,H.ceilMain);
   const glow=new THREE.Mesh(new THREE.CircleGeometry(5.8,24),M.lightOn); glow.rotation.x=Math.PI/2; glow.position.set(pp.x,pp.y+0.3,pp.z); root.add(glow); pendantGlow.push(glow);
   addRoomLight(pp.x,pp.y-1,pp.z,6,0xffe3c4);
 }
@@ -648,7 +723,7 @@ function buildBath(){
   const v=new THREE.Mesh(new THREE.CylinderGeometry(2.2,2.2,0.8,24),M.nickel); v.rotation.z=Math.PI/2; v.position.set(b.x0+0.8,32,b.z1-15); root.add(v);
   const sh=new THREE.Mesh(new THREE.CylinderGeometry(2.3,0.6,1.6,20),M.nickel); sh.rotation.z=Math.PI/2.6; sh.position.set(b.x0+3,72,b.z1-15); root.add(sh);
   const rod=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,b.x1-b.x0,12),M.nickel); rod.rotation.z=Math.PI/2; rod.position.set((b.x0+b.x1)/2,77,tz+1); root.add(rod);
-  collide.push([b.x0,tz,b.x1,b.z1]);
+  collide.push([b.x0,tz,b.x1,b.z1]); orect('the tub',b.x0,tz,b.x1,b.z1,0,H.ceilLow);
   // vanity
   const vz0=tz-25, vz1=tz-1; box(root,b.x0,b.x0+18,3,31.5,vz0,vz1,M.oak); box(root,b.x0,b.x0+16.5,0,3,vz0+0.5,vz1-0.5,M.black,{cast:false});
   { const g=frame(root,b.x0+18,vz1,b.x0+18,vz0); cabFront(g,0,g.userData.len,3,31.5,0,true); }
@@ -658,12 +733,12 @@ function buildBath(){
   const mc=(vz0+vz1)/2+1; box(root,b.x0,b.x0+4.5,46,76,mc-12,mc+12,M.nickel); box(root,b.x0+4.5,b.x0+4.6,46.3,75.7,mc-11.7,mc+11.7,M.mirror,{cast:false});
   box(root,b.x0+4.6,b.x0+4.7,46.3,75.7,mc-0.1,mc+0.1,M.nickel,{cast:false});
   box(root,b.x0,b.x0+2.4,79,81.5,mc-10,mc+10,M.nickel); box(root,b.x0+2.4,b.x0+2.5,79.4,81.1,mc-9.6,mc+9.6,M.lightOn,{cast:false});
-  collide.push([b.x0,vz0,b.x0+19,vz1]);
+  collide.push([b.x0,vz0,b.x0+19,vz1]); orect('the bathroom vanity',b.x0,vz0-0.5,b.x0+19.5,vz1+0.5,0,37); orect('the medicine cabinet',b.x0,mc-12,b.x0+4.6,mc+12,46,76);
   // toilet
   const tc=b.z0+15; box(root,b.x0,b.x0+8,15,30,tc-9.5,tc+9.5,M.enamel); box(root,b.x0-0.2,b.x0+8.6,30,31,tc-10,tc+10,M.enamel);
   const bowl=new THREE.Mesh(new THREE.CylinderGeometry(7.5,5.5,15,28),M.enamel); bowl.scale.set(1.35,1,1); bowl.position.set(b.x0+18,7.5,tc); bowl.castShadow=true; root.add(bowl);
   const seat=new THREE.Mesh(new THREE.CylinderGeometry(7.6,7.6,1,28),M.enamel); seat.scale.set(1.35,1,1); seat.position.set(b.x0+18,15.5,tc); root.add(seat);
-  collide.push([b.x0,tc-9,b.x0+28,tc+9]);
+  collide.push([b.x0,tc-9,b.x0+28,tc+9]); orect('the toilet',b.x0,tc-10,b.x0+8.6,tc+10,15,31); orect('the toilet',b.x0+7.7,tc-7.6,b.x0+28.3,tc+7.6,0,16);
   addRoomLight((b.x0+b.x1)/2,H.ceilLow-3,(b.z0+b.z1)/2-10,6);
 }
 
@@ -675,7 +750,9 @@ function buildWIC(){
   const mz=(r.z0+r.z1)/2; for(let i=0;i<5;i++) box(root,r.x1-17,r.x1,2+i*7,8+i*7,mz-9,mz+9,M.wire);
   box(root,r.x1-17,r.x1,37,38,mz-24,mz+24,M.wire);
   for(const z of [r.z0+0.5,r.z1-0.5]) box(root,r.x0+2,r.x1-2,y1-14,y1-13.5,z-0.3,z+0.3,M.wire,{cast:false});
-  collide.push([r.x1-17,mz-24,r.x1,mz+24]);
+  collide.push([r.x1-17,mz-24,r.x1,mz+24]); orect('the closet drawers',r.x1-17,mz-9,r.x1,mz+9,0,38); orect('the closet shelf',r.x1-17,mz-24,r.x1,mz+24,37,38);
+  orect('the closet shelving',r.x0,r.z0,r.x1,r.z0+14,y1,y1+0.8); orect('the closet shelving',r.x0,r.z1-14,r.x1,r.z1,y1,y1+0.8); orect('the closet shelving',r.x1-14,r.z0,r.x1,r.z1,y1,y1+0.8);
+  for(const z of [r.z0+11,r.z1-11]) orect('the hanging rod',r.x0,z-0.5,r.x1-15,z+0.5,y2+11.5,y2+12.5);
   addRoomLight((r.x0+r.x1)/2,H.ceilLow-3,mz,4);
 }
 
@@ -688,6 +765,8 @@ function buildLaundry(){
   cyl(root,2.5,H.ceilLow-50,r.x1-14,50,r.z0+44,std({color:0x9a9ea2,metalness:.6,roughness:.4}));
   cyl(root,10.5,60,r.x1-12,0,r.z1-12,M.wh,32);
   collide.push([r.x0,r.z0,r.x1,r.z1]);
+  orect('the washer/dryer',r.x1-30.2,r.z0+3,r.x1-1,r.z0+30,0,76); orect('the air handler',r.x1-26,r.z0+33,r.x1-1,r.z0+55,0,50);
+  opoly('the water heater',Array.from({length:16},(_,i)=>[r.x1-12+10.5*Math.cos(i/16*Math.PI*2),r.z1-12+10.5*Math.sin(i/16*Math.PI*2)]),0,60);
 }
 
 /* --- covered deck: masonry wall with window opening, stucco walls, railing with privacy screen --- */
@@ -695,6 +774,7 @@ function buildBalcony(){
   const b=R.balcony;
   box(root,0,b.x1,-2.2,-0.6,b.z0,b.z1,M.deck,{cast:false});
   box(root,b.x0,b.x1,-1,5,b.z0,b.z0+3,M.concrete); box(root,b.x0,b.x1,-1,5,b.z1-3,b.z1,M.concrete); box(root,b.x1-3,b.x1,-1,5,b.z0,b.z1,M.concrete);
+  orect('the deck curb',b.x0,b.z0,b.x1,b.z0+3,-1,5); orect('the deck curb',b.x0,b.z1-3,b.x1,b.z1,-1,5); orect('the deck curb',b.x1-3,b.z0,b.x1,b.z1,-1,5);
   const rf=box(root,0,b.x1+6.4,H.ceilMain,H.ceilMain+14,0,b.z1+6,[M.stucco,M.stucco,M.cut,M.stucco,M.stucco,M.stucco]); rf.userData.ceiling=true; ceilings.push(rf);
   // railing on the open (north) side
   const rx0=0.5, rx1=2.5, z0=b.z0, z1=b.z1; const posts=[z0+1,(z0+z1)/2,z1-1];
@@ -702,7 +782,25 @@ function buildBalcony(){
   box(root,rx0-0.3,rx1+0.3,40.5,42,z0,z1,M.bronze); box(root,rx0,rx1,3,4.5,z0,z1,M.bronze);
   for(let z=z0+4;z<z1-2;z+=4.6) box(root,rx0+0.6,rx1-0.6,4.5,40.5,z-0.3,z+0.3,M.bronze,{cast:false});
   box(root,rx1+0.1,rx1+0.2,4.5,40.5,z0+1,z1-1,M.screen,{cast:false});
-  collide.push([-20,0,rx1+3,b.z1+6]);
+  collide.push([-20,0,rx1+3,b.z1+6]); orect('the railing',rx0-0.3,z0,rx1+0.3,z1,-1,42);
+}
+
+/* --- building hallway outside the front door --- */
+function buildHallway(){
+  const {x0,x1,z0,z1}=HALL, hh=H.ceilLow, hw=M.hallWall, wm=[hw,hw,M.cut,hw,hw,hw];
+  const door=openings().find(o=>o.name==='front entry door'), dw=W[door.wall]; FRONT=[door.from,dw.z0,door.to,dw.z1];
+  box(root,x0,x1,-2.2,0,z0,z1,M.hallCarpet,{cast:false});
+  box(root,x0,x1+6.1,0,H.ceilMain,z1,z1+6,wm); collide.push([x0,z1,x1+6.1,z1+6]);           // far wall
+  box(root,x1,x1+6.1,0,H.ceilMain,z0,z1,wm); collide.push([x1,z0,x1+6.1,z1]);                // east end (lot line)
+  const c=box(root,x0,x1,hh,hh+0.6,z0,z1,M.ceiling); c.userData.ceiling=true; ceilings.push(c);
+  const t=0.6, bh=4.5;
+  for(const [a,b] of [[x0,door.from-3.5],[door.to+3.5,x1]]) box(root,a,b,0,bh,z0,z0+t,M.trim,{cast:false});
+  box(root,x0,x1,0,bh,z1-t,z1,M.trim,{cast:false}); box(root,x1-t,x1,0,bh,z0,z1,M.trim,{cast:false}); box(root,x0,x0+t,0,bh,z0,z1,M.trim,{cast:false});
+  for(const a of [252,394]){ const b=a+36;                                                      // neighbours' doors across the hall
+    box(root,a,b,0,80,z1-0.6,z1,M.hallDoor); box(root,a-3.5,a,0,83.5,z1-1.2,z1,M.trim); box(root,b,b+3.5,0,83.5,z1-1.2,z1,M.trim); box(root,a-3.5,b+3.5,80,83.5,z1-1.2,z1,M.trim);
+    const k=new THREE.Mesh(new THREE.SphereGeometry(1.1,16,12),M.nickel); k.position.set(b-3,36,z1-1.8); root.add(k); }
+  for(const x of [270,361,430]) can(x,(z0+z1)/2,hh);
+  addRoomLight(290,hh-4,(z0+z1)/2,5); addRoomLight(400,hh-4,(z0+z1)/2,5);
 }
 
 /* --- the rest of the building + neighborhood + downtown skyline --- */
@@ -722,13 +820,15 @@ function buildSurroundings(){
   // rest of the 5th floor (corridor, stairs, other units) south and west of the unit
   const P5=[M.brick,M.brick,M.concrete,M.brick,M.cmu,M.cmu];
   box(surroundGroup,462.7+0.5,ph,-12,top,0,ph,P5);
-  box(surroundGroup,211.9+0.5,462.7+0.5,-12,top,264.4+0.5,ph,P5);
+  box(surroundGroup,211.9+0.5,462.7+0.5,-12,top,HALL.z1+6.5,ph,P5);
+  box(surroundGroup,211.9,462.7+0.5,-12,-2.2,264.4,HALL.z1+6.5,P5);                     // under the hallway
   box(surroundGroup,0,211.9+0.5,-12,top,351.2+0.5,ph,P5);
   // roof over the unit (seen from outside / the deck)
   const RF=[M.cmu,M.cmu,roofMat,M.stucco,M.cmu,M.cmu];
   box(surroundGroup,148.6,462.7,top-13,top,0,264.4,RF);
   box(surroundGroup,0,148.6,top-13,top,167.6,351.2,RF);
   box(surroundGroup,148.6,211.9,top-13,top,264.4,351.2,RF);
+  box(surroundGroup,211.9,462.7+0.5,H.ceilMain,top,264.4,HALL.z1+6.5,RF);               // roof over the hallway
 }
 function buildCity(){
   if(cityGroup) return; cityGroup=new THREE.Group(); scene.add(cityGroup);
@@ -802,8 +902,6 @@ function buildLights(){
     if(hor){ const zf=w.z1+0.5; ra.position.set(mid*IN,yc*IN,zf*IN); ra.lookAt(mid*IN,yc*IN,(zf+40)*IN); }
     else { const xf=(name==='balcony French doors'?w.x1:w.x1)+0.5; ra.position.set(xf*IN,yc*IN,mid*IN); ra.lookAt((xf+40)*IN,yc*IN,mid*IN); }
     ra.userData.day=k*3.2; lightsGroup.add(ra); }
-  // corridor blocker outside the front door
-  collide.push([330,264.4,392,300]);
 }
 
 /* --- room labels --- */
@@ -816,19 +914,21 @@ function buildLabels(){
 }
 
 /* ------------------------------------------------------------------ display state */
-let mode='dollhouse', photoMode=null;
+let mode='dollhouse', photoMode=null, furn=null;
 function applyDisplay(){
   const cut=false;
-  renderer.clippingPlanes = (mode==='plan'||cut)?[new THREE.Plane(new THREE.Vector3(0,-1,0),48*IN)]:[];
+  CLIP.length=0; if(mode==='plan'||cut) CLIP.push(PLANCUT); clipMaterials(scene);
   for(const c of ceilings) c.visible = (mode==='walk');
   for(const o of labelObjs) o.visible = $('#lbl').checked && mode!=='walk';
-  $('#labels').style.display = ($('#lbl').checked && mode!=='walk')?'':'none';
   const on=$('#lights').checked; for(const l of roomLights) l.visible=on; for(const g of pendantGlow) g.material=on?M.lightOn:M.trim;
   const fire=$('#fire').checked; if(fireGroup) fireGroup.visible=fire; if(fireLight) fireLight.visible=fire;
   const sur=$('#sur').checked; if(surroundGroup) surroundGroup.visible=sur&&mode==='walk'; if(cityGroup) cityGroup.visible=sur;
   skyMesh.visible = mode!=='plan'; scene.background = mode==='plan'?new THREE.Color(0xeeece7):null;
   renderer.toneMappingExposure=parseFloat($('#exp').value);
+  if(furn) furn.setMode(mode);
 }
+const PLANCUT=new THREE.Plane(new THREE.Vector3(0,-1,0),48*IN);
+function clipMaterials(o){ if(o.userData.noClip) return; const ms=o.material?(Array.isArray(o.material)?o.material:[o.material]):[]; for(const m of ms) if(m.clippingPlanes!==CLIP) m.clippingPlanes=CLIP; for(const c of o.children) clipMaterials(c); }
 
 /* ------------------------------------------------------------------ cameras & controls */
 const CENTER=new THREE.Vector3(231*IN,0,175*IN);
@@ -840,7 +940,7 @@ pan.mouseButtons={LEFT:THREE.MOUSE.PAN,MIDDLE:THREE.MOUSE.DOLLY,RIGHT:THREE.MOUS
 const walker={x:300,z:120,eye:60,yaw:0,pitch:0};
 function setDollhouse(){ persp.fov=45; persp.position.set(CENTER.x+10.5,13.5,CENTER.z+1.5); orbit.target.copy(CENTER); persp.updateProjectionMatrix(); orbit.update(); }
 function setMode(m, keepPose){
-  mode=m; document.querySelectorAll('#modes button,#mbar button').forEach(b=>b.classList.toggle('on',b.dataset.m===m)); document.body.classList.toggle('walk',m==='walk');
+  mode=m; releaseKeys(); document.querySelectorAll('#modes button,#mbar button').forEach(b=>b.classList.toggle('on',b.dataset.m===m)); document.body.classList.toggle('walk',m==='walk');
   orbit.enabled = m==='dollhouse'; pan.enabled = m==='plan';
   camera = m==='plan'?ortho:persp;
   if(m==='dollhouse'&&!keepPose) setDollhouse();
@@ -850,19 +950,24 @@ function setMode(m, keepPose){
   applyDisplay(); resize(); hud();
 }
 function hud(){
-  if(TOUCH){ const t={dollhouse:'One finger orbits · Two fingers pan and zoom · Double-tap a room to walk in', walk:'Drag to look · Joystick to walk · Double-tap the floor to go there', plan:'Drag to pan · Pinch to zoom · North is up'}[mode];
+  if(TOUCH){ const t={dollhouse:'One finger orbits · Two fingers pan and zoom · Double-tap a room to walk in', walk:'Drag to look · Joystick to walk · Tap a door to open or close it · Double-tap the floor to go there', plan:'Drag furniture to move it · Drag the floor to pan · Pinch to zoom · North is up'}[mode];
     const el=$('#hud'); el.innerHTML=(measuring?'Measure: tap two points · ':'')+t; el.classList.remove('fade'); clearTimeout(hud.t); hud.t=setTimeout(()=>el.classList.add('fade'),6000); return; }
   const h={dollhouse:'Drag to orbit · Right-drag or two fingers to pan · Scroll to zoom · Double-click a spot to walk there',
-    walk: locked ? 'Move the mouse to look · <kbd>W A S D</kbd> to move · <kbd>Shift</kbd> faster · <kbd>Q</kbd>/<kbd>E</kbd> eye height · Double-click to walk to the spot in the crosshair · <kbd>Esc</kbd> frees the cursor'
-                 : 'Click the view to look around with the mouse · <kbd>W A S D</kbd> or arrows to move · Scroll to step · Double-click the floor to jump there',
-    plan:'Drag to pan · Scroll to zoom · Plan cut at 1.2 m · North is up'}[mode];
+    walk: locked ? 'Move the mouse to look · <kbd>W A S D</kbd> to move · <kbd>Shift</kbd> faster · <kbd>Q</kbd>/<kbd>E</kbd> eye height · Click a door to open or close it · Double-click to walk to the spot in the crosshair · <kbd>Esc</kbd> frees the cursor'
+                 : 'Click the view to look around with the mouse · <kbd>W A S D</kbd> or arrows to move · Scroll to step · Double-click the floor to jump there · Click a door to open or close it',
+    plan:'Drag furniture to move it · <kbd>R</kbd> turns · Arrows nudge 1 cm · Drag the floor to pan · Scroll to zoom · North is up'}[mode];
   $('#hud').innerHTML=(measuring?'Measure: click two points · ':'')+h;
 }
 document.querySelectorAll('#modes button,#mbar button').forEach(b=>b.onclick=()=>setMode(b.dataset.m));
 
 // walk controls
-const keys={}; addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return; keys[e.code]=true; if(e.code==='Space'&&photoMode){ $('#photo').style.opacity=1; e.preventDefault(); } });
-addEventListener('keyup',e=>{ keys[e.code]=false; if(e.code==='Space'&&photoMode) $('#photo').style.opacity=$('#pop').value; });
+const keys={};
+// a held key never gets its keyup if the window loses focus or Cmd is down (macOS) -> walking would get stuck; reset instead
+const releaseKeys=()=>{ for(const k in keys) keys[k]=false; };
+addEventListener('blur',releaseKeys); document.addEventListener('visibilitychange',releaseKeys); document.addEventListener('pointerlockchange',releaseKeys);
+addEventListener('keydown',e=>{ if(e.metaKey||e.ctrlKey||e.key==='Meta'||e.key==='Control'){ releaseKeys(); return; }
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA') return; if(furn&&furn.onKey(e)){ e.preventDefault(); return; } keys[e.code]=true; if(e.code==='Space'&&photoMode){ $('#photo').style.opacity=1; e.preventDefault(); } });
+addEventListener('keyup',e=>{ if(e.key==='Meta'||e.key==='Control') releaseKeys(); keys[e.code]=false; if(e.code==='Space'&&photoMode) $('#photo').style.opacity=$('#pop').value; });
 let drag=null;
 renderer.domElement.addEventListener('pointerdown',e=>{ if(drag) return; drag={id:e.pointerId,x:e.clientX,y:e.clientY,moved:0}; });
 let locked=false; const LOOK=0.0022;
@@ -875,13 +980,15 @@ let lastTap=null;
 addEventListener('pointercancel',e=>{ if(drag&&e.pointerId===drag.id) drag=null; });
 addEventListener('pointerup',e=>{ if(!drag||e.pointerId!==drag.id) return; const click=drag.moved<(TOUCH?10:4); drag=null; if(!click) return;
   if(measuring){ measureClick(e); return; }
+  if(mode==='walk'&&(locked||e.target===renderer.domElement)){ const d=doorAt(e); if(d){ setDoor(d,!DOORSTATE[d]); doorHint(e,true); return; } }
   if(TOUCH&&e.target===renderer.domElement){ const now=performance.now(); if(lastTap&&now-lastTap.t<350&&Math.hypot(e.clientX-lastTap.x,e.clientY-lastTap.y)<40){ lastTap=null; onDouble(e); } else lastTap={t:now,x:e.clientX,y:e.clientY}; return; }
   if(mode==='walk'&&!locked&&e.target===renderer.domElement){ try{ const r=renderer.domElement.requestPointerLock(); if(r&&r.catch) r.catch(()=>{}); }catch(_){} } });
 renderer.domElement.addEventListener('wheel',e=>{ if(mode!=='walk') return; e.preventDefault(); stepWalker(-Math.sign(e.deltaY)*8,0); },{passive:false});
 renderer.domElement.addEventListener('dblclick',e=>{ if(!TOUCH) onDouble(e); });
 function onDouble(e){
+  if(furn&&furn.hitClient(e)) return;
   const hit=pick(e); if(!hit) return; const p=hit.point.clone().divideScalar(IN);
-  if(mode==='dollhouse'||mode==='plan'){ if(roomAt(p.x,p.z)==='out') return; walker.x=p.x; walker.z=p.z; walker.eye=60; walker.pitch=-0.05; setMode('walk',true); persp.fov=parseFloat($('#pfov').value); persp.updateProjectionMatrix(); return; }
+  if(mode==='dollhouse'||mode==='plan'){ if(roomAt(p.x,p.z)==='out'&&!inHall(p.x,p.z)) return; walker.x=p.x; walker.z=p.z; walker.eye=60; walker.pitch=-0.05; setMode('walk',true); persp.fov=parseFloat($('#pfov').value); persp.updateProjectionMatrix(); return; }
   if(mode==='walk'&&hit.face&&hit.face.normal.y>0.7){ glideTo={x:p.x,z:p.z}; }
 }
 // on-screen joystick (touch)
@@ -893,12 +1000,29 @@ for(const ev of ['pointerup','pointercancel']) joyEl.addEventListener(ev,e=>{ if
 let glideTo=null;
 const ray=new THREE.Raycaster();
 function pick(e){ const r=renderer.domElement.getBoundingClientRect(); const v=locked?new THREE.Vector2(0,0):new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1);
-  ray.setFromCamera(v,camera); const hits=ray.intersectObject(root,true).filter(h=>h.object.material!==M.glass&&h.object.visible&&!(h.object.material===M.screen)&&h.object.parent.visible);
-  const clip=renderer.clippingPlanes[0]; return hits.find(h=>!clip||clip.distanceToPoint(h.point)>=0); }
-function blocked(x,z){ const r=7; for(const [a,b,c,d] of collide){ if(x>a-r&&x<c+r&&z>b-r&&z<d+r) return true; } return roomAt(x,z)==='out' && !(x>0&&x<462&&z>0&&z<351); }
+  ray.setFromCamera(v,camera); const hits=ray.intersectObjects(furn?[root,furn.group]:[root],true).filter(h=>h.object.material!==M.glass&&h.object.visible&&!(h.object.material===M.screen)&&h.object.parent.visible);
+  const clip=CLIP[0]; return hits.find(h=>!clip||furn&&isFurn(h.object)||clip.distanceToPoint(h.point)>=0); }
+function isFurn(o){ for(;o;o=o.parent) if(furn&&o===furn.group) return true; return false; }
+function blocked(x,z){ const r=7; for(const [a,b,c,d] of collide){ if(x>a-r&&x<c+r&&z>b-r&&z<d+r) return true; } if(furn&&furn.blocks(x,z,r)) return true;
+  for(const d of DOORWAYS){ if(DOORSTATE[d.name]) continue; const [[ax,az],,[bx,bz]]=d.poly;            // closed doors block the way
+    if(x>Math.min(ax,bx)-r&&x<Math.max(ax,bx)+r&&z>Math.min(az,bz)-r&&z<Math.max(az,bz)+r) return true; }
+  return roomAt(x,z)==='out' && !(x>0&&x<462&&z>0&&z<351); }
 function stepWalker(fwd,side){ const s=Math.sin(walker.yaw), c=Math.cos(walker.yaw);
   const dx=-s*fwd+c*side, dz=-c*fwd-s*side;
   if(!blocked(walker.x+dx,walker.z)) walker.x+=dx; if(!blocked(walker.x,walker.z+dz)) walker.z+=dz; }
+
+let lastMouse=null;
+renderer.domElement.addEventListener('mousemove',e=>{ lastMouse=e; });
+renderer.domElement.addEventListener('mouseleave',()=>{ lastMouse=null; $('#doorhint').style.display='none'; });
+function doorHint(e,force){
+  doorHint.t=performance.now(); const el=$('#doorhint');
+  const d=(mode==='walk'&&(locked||e))?doorAt(e):null;
+  renderer.domElement.style.cursor=d&&!locked?'pointer':'';
+  if(!d){ el.style.display='none'; return; }
+  el.textContent=`${TOUCH?'Tap':'Click'} to ${DOORSTATE[d]?'close':'open'} the ${DOORLABEL[d]||'door'}`; el.style.display='block';
+  const r=stage.getBoundingClientRect(); const x=locked||!e?r.width/2:e.clientX-r.left, y=locked||!e?r.height/2:e.clientY-r.top;
+  el.style.left=(x+14)+'px'; el.style.top=(y+14)+'px';
+}
 
 /* ------------------------------------------------------------------ photo comparison */
 // camera poses estimated from each listing photo (inches; look = point the photo is aimed at)
@@ -944,7 +1068,11 @@ $('#areset').onclick=()=>{ H={...DEF}; try{ localStorage.removeItem('condo5ne.he
 
 /* ------------------------------------------------------------------ wiring */
 for(const id of ['lbl','lights','fire','sur']) $('#'+id).onchange=applyDisplay;
-$('#doors').onchange=e=>{ doorsOpen=e.target.checked; applyDoors(); };
+$('#doors').onchange=e=>{ for(const n of Object.keys(DOORSTATE)) if(n!=='front entry door') DOORSTATE[n]=e.target.checked; applyDoors(true); };
+$('#fdoor').onchange=e=>setDoor('front entry door',e.target.checked);
+function walkIn(){ exitPhoto(true); setMode('walk',true); walker.x=322; walker.z=316; walker.eye=60; walker.yaw=Math.atan2(-(361-322),-(264-316)); walker.pitch=-0.04;
+  persp.fov=parseFloat($('#pfov').value); persp.updateProjectionMatrix(); if(NARROW()) $('#panel').classList.add('hide'); }
+$('#walkin').onclick=walkIn;
 $('#exp').oninput=e=>{ $('#expv').textContent=parseFloat(e.target.value).toFixed(2); applyDisplay(); };
 $('#tod').oninput=updateSun; $('#season').onchange=updateSun;
 $('#toggle').onclick=()=>$('#panel').classList.toggle('hide');
@@ -972,6 +1100,7 @@ function loop(){
     if(glideTo){ const dx=glideTo.x-walker.x, dz=glideTo.z-walker.z, d=Math.hypot(dx,dz); if(d<2) glideTo=null; else { const st=Math.min(d,140*dt); const nx=walker.x+dx/d*st, nz=walker.z+dz/d*st; if(!blocked(nx,nz)){ walker.x=nx; walker.z=nz; } else glideTo=null; } }
     persp.position.set(walker.x*IN,walker.eye*IN,walker.z*IN); persp.rotation.set(walker.pitch,walker.yaw,0);
   } else if(mode==='dollhouse') orbit.update(); else pan.update();
+  animateDoors(dt); if(mode==='walk'&&!TOUCH&&performance.now()-(doorHint.t||0)>120) doorHint(lastMouse);
   if(fireGroup&&fireGroup.visible){ const t=performance.now()/1000; fireGroup.children.forEach((c,i)=>{ if(c.isSprite){ const k=0.82+0.22*Math.sin(t*7+i*1.7)+0.1*Math.sin(t*13+i*2.3); c.scale.y=c.userData.h*k; c.position.y=1.5+c.scale.y*0.42; } }); fireLight.intensity=3.5+0.8*Math.sin(t*9)+0.5*Math.sin(t*23); }
   // compass: north = -x in the model
   const fwd=new THREE.Vector3(); camera.getWorldDirection(fwd); let ang;
@@ -985,10 +1114,18 @@ function loop(){
 document.body.classList.toggle('narrow',NARROW()); addEventListener('resize',()=>document.body.classList.toggle('narrow',NARROW()));
 if(NARROW()) $('#panel').classList.add('hide');
 buildSky(); buildCity(); buildAssume(); build(); updateSun(); resize();
+if(window.FurnitureKit&&window.Furnish){
+  const inWall=(x,z)=>P.walls.some(w=>x>=w.rect[0]-0.01&&x<=w.rect[2]+0.01&&z>=w.rect[1]-0.01&&z<=w.rect[3]+0.01);
+  furn=window.Furnish({THREE, scene, IN, CSS2DObject, panel:$('#furn'), stage, dom:renderer.domElement, pan,
+    camera:()=>camera, mode:()=>mode, setMode, measuring:()=>measuring, rooms:()=>R, roomAt, inWall,
+    ceilingAt:(x,z)=>{ const r=roomAt(x,z); return LOWROOMS.has(r)?H.ceilLow:H.ceilMain; }, floorAt:(x,z)=>roomAt(x,z)==='balcony'?-0.6:0,
+    obstacles:()=>OBST, surfaces:()=>SURF, swings:()=>SWINGS, openings:()=>DOORWAYS, viewCenter:()=>({x:pan.target.x/IN, z:pan.target.z/IN})});
+  window.__furn=furn; applyDisplay();
+}
 $('#loading').remove();
 let hsh=location.hash.slice(1); const modelOnly=hsh.endsWith('-m'); hsh=hsh.replace(/-m$/,'');
 if(modelOnly){ $('#pop').value=0; }
-if(PHOTOS.some(p=>p[0]===hsh)) enterPhoto(hsh); else if(['walk','plan'].includes(hsh)) setMode(hsh); else setMode('dollhouse');
+if(PHOTOS.some(p=>p[0]===hsh)) enterPhoto(hsh); else if(['walk','plan'].includes(hsh)) setMode(hsh); else if(hsh==='hall') walkIn(); else setMode('dollhouse');
 loop();
 window.__ready=true;
 </script>
