@@ -750,5 +750,59 @@ function build(id, opts={}){
   const o={}; (it.params||[]).forEach(p=>o[p.key]=opts[p.key]??p.def);
   const g=it.build(o); g.name=id; g.userData.furniture=id; return g;
 }
-return { ITEMS, SETS, ALL, build };
+/* ============================================================ placeholders for things you don't own yet
+   A plain box or a simple generic shape built to exactly W x D x H (inches), all in a striped "placeholder" pattern. */
+const CUSTOM_KINDS = [
+  ['box','Plain box (placeholder)',[36,24,30]], ['sofa','Sofa',[84,36,33]], ['armchair','Armchair',[32,34,32]], ['bed','Bed',[60,80,40]],
+  ['table','Table',[60,36,30]], ['roundtable','Round table',[42,42,30]], ['desk','Desk',[55,28,29.5]], ['dresser','Dresser / cabinet',[36,18,32]],
+  ['bookshelf','Bookshelf',[32,12,72]], ['chair','Chair',[18,21,34]],
+];
+let PH=null;
+function placeholderMat(){
+  if(PH) return PH;
+  const t=canvasTex(128,(g,S)=>{ g.fillStyle='#2e3236'; g.fillRect(0,0,S,S); g.strokeStyle='#f0a92e'; g.lineWidth=S*0.16;
+    for(let k=-1;k<=2;k++){ g.beginPath(); g.moveTo(k*S-S*0.1,S+S*0.1); g.lineTo(k*S+S+S*0.1,-S*0.1); g.stroke(); } });
+  PH=new THREE.MeshStandardMaterial({map:t, roughness:.75}); return PH;
+}
+// UVs in inches from the part's position, so the stripes keep the same size on every part (one stripe pair per 6")
+function worldUV(geo){ const p=geo.attributes.position, n=geo.attributes.normal, uv=geo.attributes.uv, k=1/6;
+  for(let i=0;i<p.count;i++){ const ax=Math.abs(n.getX(i)), ay=Math.abs(n.getY(i)), az=Math.abs(n.getZ(i));
+    if(ay>=ax&&ay>=az) uv.setXY(i,p.getX(i)*k,p.getZ(i)*k); else if(ax>=az) uv.setXY(i,p.getZ(i)*k,p.getY(i)*k); else uv.setXY(i,p.getX(i)*k,p.getY(i)*k); }
+  uv.needsUpdate=true; return geo; }
+function custom(o={}){
+  const kind=o.kind||'box', def=(CUSTOM_KINDS.find(k=>k[0]===kind)||CUSTOM_KINDS[0])[2];
+  const W=Math.max(1,o.w||def[0]), D=Math.max(1,o.d||def[1]), H=Math.max(1,o.h||def[2]);
+  const G=new THREE.Group(), m=placeholderMat(), x0=-W/2, x1=W/2, z0=-D/2, z1=D/2;
+  const B=(a,b,c,d,e,f)=>{ if(b-a<0.01||d-c<0.01||f-e<0.01) return; const g=new THREE.BoxGeometry(b-a,d-c,f-e); g.translate((a+b)/2,(c+d)/2,(e+f)/2); mesh(G,worldUV(g),m); };
+  const legs=(t,inset,h)=>{ for(const x of [x0+inset,x1-inset-t]) for(const z of [z0+inset,z1-inset-t]) B(x,x+t,0,h,z,z+t); };
+  if(kind==='sofa'||kind==='armchair'){
+    const leg=Math.min(4,H*0.12), seat=Math.min(18,H*0.55), back=Math.min(10,Math.max(5,D*0.22)), arm=Math.min(kind==='sofa'?7:6,Math.max(3,W*0.09)), armTop=Math.min(H,Math.max(seat+4,H*0.75));
+    legs(2,1.5,leg); B(x0,x1,leg,seat-4,z0,z1); B(x0,x1,leg,H,z0,z0+back); for(const s of[-1,1]) B(s<0?x0:x1-arm,s<0?x0+arm:x1,leg,armTop,z0,z1);
+    const n=kind==='sofa'?Math.max(1,Math.round((W-2*arm)/26)):1, cw=(W-2*arm)/n;
+    for(let i=0;i<n;i++){ const a=x0+arm+i*cw; B(a+0.2,a+cw-0.2,seat-4,seat,z0+back,z1); B(a+0.2,a+cw-0.2,seat,Math.min(H-1,seat+14),z0+back,z0+back+Math.min(6,D*0.15)); }
+  } else if(kind==='bed'){
+    const top=H>28?Math.min(25,H-3):H, base=Math.max(0.5,top-10);
+    B(x0,x1,0,base,z0+(H>28?2:0),z1); B(x0+1,x1-1,base,top,z0+(H>28?2.5:0.5),z1-0.5);
+    if(H>28) B(x0,x1,0,H,z0,z0+2);
+  } else if(kind==='table'||kind==='desk'){
+    const t=1.25; B(x0,x1,H-t,H,z0,z1); legs(2,1,H-t);
+    if(kind==='desk'){ B(x0+1,x1-1,H-t-10,H-t,z0+1,z0+1.75); const pw=Math.min(16,W*0.3); B(x1-1-pw,x1-1,0,H-t,z0+1,z1-1); }
+  } else if(kind==='roundtable'){
+    const t=1.25, top=new THREE.CylinderGeometry(0.5,0.5,t,48); top.scale(W,1,D); top.translate(0,H-t/2,0); mesh(G,worldUV(top),m);
+    const r=Math.min(W,D); const ped=new THREE.CylinderGeometry(r*0.06,r*0.08,H-t,20); ped.translate(0,(H-t)/2,0); mesh(G,worldUV(ped),m);
+    const foot=new THREE.CylinderGeometry(r*0.25,r*0.28,1.5,32); foot.translate(0,0.75,0); mesh(G,worldUV(foot),m);
+  } else if(kind==='dresser'){
+    const f=0.5; B(x0,x1,0,H,z0,z1-f);                                           // carcass; drawer fronts make up the last 0.5"
+    const rows=Math.max(1,Math.round((H-4)/10)), cols=W>40?2:1, rh=(H-5)/rows, cw=(W-2)/cols;
+    for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) B(x0+1+c*cw+0.15,x0+1+(c+1)*cw-0.15,4+r*rh+0.15,4+(r+1)*rh-0.15,z1-f,z1);
+  } else if(kind==='bookshelf'){
+    const t=0.75; B(x0,x0+t,0,H,z0,z1); B(x1-t,x1,0,H,z0,z1); B(x0,x1,H-t,H,z0,z1); B(x0+t,x1-t,0,3,z0,z1); B(x0+t,x1-t,3,H-t,z0,z0+0.25);
+    const n=Math.max(1,Math.round((H-4)/13)); for(let i=1;i<n;i++){ const y=3+i*(H-3-t)/n; B(x0+t,x1-t,y-t/2,y+t/2,z0+0.25,z1); }
+  } else if(kind==='chair'){
+    const seat=Math.min(18,H*0.53); legs(1.25,0.5,seat-1.5); B(x0,x1,seat-1.5,seat,z0,z1); B(x0+0.5,x1-0.5,seat,H,z0,z0+1.25);
+  } else B(x0,x1,0,H,z0,z1);
+  return G;
+}
+
+return { ITEMS, SETS, ALL, build, custom, CUSTOM_KINDS };
 };

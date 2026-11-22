@@ -120,7 +120,6 @@ body.narrow #mphoto input{flex:1;width:auto}
     <section>
       <h2>View</h2>
       <div class="seg" id="modes"><button data-m="dollhouse" class="on">Dollhouse</button><button data-m="walk">Walk</button><button data-m="plan">Plan</button></div>
-      <div class="btns" style="margin-top:8px"><button class="btn" id="walkin">Walk in from the hallway</button></div>
     </section>
 
     <section id="furn" hidden></section>
@@ -973,9 +972,9 @@ renderer.domElement.addEventListener('pointerdown',e=>{ if(drag) return; drag={i
 let locked=false; const LOOK=0.0022;
 const clampP=v=>Math.max(-1.35,Math.min(1.35,v));
 document.addEventListener('pointerlockchange',()=>{ locked=document.pointerLockElement===renderer.domElement; $('#cross').hidden=!locked; hud(); });
-addEventListener('mousemove',e=>{ if(!locked||mode!=='walk') return; walker.yaw-=e.movementX*LOOK; walker.pitch=clampP(walker.pitch-e.movementY*LOOK); });
+addEventListener('mousemove',e=>{ if(!locked||mode!=='walk') return; walker.yaw+=e.movementX*LOOK; walker.pitch=clampP(walker.pitch+e.movementY*LOOK); });
 addEventListener('pointermove',e=>{ if(!drag||locked||e.pointerId!==drag.id) return; const dx=e.clientX-drag.x, dy=e.clientY-drag.y; drag.moved+=Math.abs(dx)+Math.abs(dy); drag.x=e.clientX; drag.y=e.clientY;
-  if(mode==='walk'){ const k=TOUCH?LOOK*2.2:LOOK*1.4; walker.yaw-=dx*k; walker.pitch=clampP(walker.pitch-dy*k); } });
+  if(mode==='walk'){ const k=TOUCH?LOOK*2.2:LOOK*1.4; walker.yaw+=dx*k; walker.pitch=clampP(walker.pitch+dy*k); } });
 let lastTap=null;
 addEventListener('pointercancel',e=>{ if(drag&&e.pointerId===drag.id) drag=null; });
 addEventListener('pointerup',e=>{ if(!drag||e.pointerId!==drag.id) return; const click=drag.moved<(TOUCH?10:4); drag=null; if(!click) return;
@@ -1072,7 +1071,6 @@ $('#doors').onchange=e=>{ for(const n of Object.keys(DOORSTATE)) if(n!=='front e
 $('#fdoor').onchange=e=>setDoor('front entry door',e.target.checked);
 function walkIn(){ exitPhoto(true); setMode('walk',true); walker.x=322; walker.z=316; walker.eye=60; walker.yaw=Math.atan2(-(361-322),-(264-316)); walker.pitch=-0.04;
   persp.fov=parseFloat($('#pfov').value); persp.updateProjectionMatrix(); if(NARROW()) $('#panel').classList.add('hide'); }
-$('#walkin').onclick=walkIn;
 $('#exp').oninput=e=>{ $('#expv').textContent=parseFloat(e.target.value).toFixed(2); applyDisplay(); };
 $('#tod').oninput=updateSun; $('#season').onchange=updateSun;
 $('#toggle').onclick=()=>$('#panel').classList.toggle('hide');

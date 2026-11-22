@@ -21,12 +21,19 @@ const CAT = KIT.ITEMS.filter(it=>!HIDDEN.has(it.id)).map(it=>{
   if(it.id==='dresser-brown') params.push({key:'mirror',label:'Vanity mirror on top',type:'check',def:true});
   return {...it, qty:it.qty||1, limit:it.many?Infinity:(it.qty||1), params};
 });
+const KINDS = KIT.CUSTOM_KINDS;
+const kindName = k=>(KINDS.find(x=>x[0]===k)||KINDS[0])[1];
+CAT.push({id:'custom', name:'New item', room:'New', custom:true, qty:1, limit:Infinity, many:true, params:[
+  {key:'name',label:'Name',type:'text',def:''},
+  {key:'kind',label:'Shape',type:'select',def:'box',options:KINDS.map(k=>[k[0],k[1]])},
+  {key:'w',label:'Width',type:'cm',def:36},{key:'d',label:'Depth',type:'cm',def:24},{key:'h',label:'Height',type:'cm',def:30}]});
 const CATI = Object.fromEntries(CAT.map(c=>[c.id,c]));
 const variantName = (c,inst)=>{ const p=c.params.find(p=>p.type==='select'); if(!p) return ''; const v=inst.opts[p.key]??p.def; const o=p.options.find(o=>o[0]===v); return o?o[1]:''; };
 
 function optsOf(inst){ const c=CATI[inst.id], o={}; for(const p of c.params) o[p.key]=inst.opts[p.key]??p.def; return o; }
 function buildModel(inst){
-  const o=optsOf(inst); const g=KIT.build(inst.id,o);
+  const o=optsOf(inst); if(inst.id==='custom') return KIT.custom(o);
+  const g=KIT.build(inst.id,o);
   if(inst.id==='dresser-brown' && o.mirror){ const m=KIT.build('vanity-mirror'); m.position.set(-3,40,-4.5); g.add(m); }
   return g;
 }
@@ -105,7 +112,7 @@ if(!store||!Array.isArray(store.list)||!store.list.length) store={cur:0, list:[{
 for(const L of (window.CONDO_LAYOUTS||[])) if(L&&L.name&&!store.list.some(x=>x.name===L.name)) store.list.push({name:L.name, items:L.items||[]});
 if(!(store.cur>=0&&store.cur<store.list.length)) store.cur=0;
 let saveT=null;
-function save(now){ clearTimeout(saveT); const f=()=>{ store.list[store.cur].items=placed.map(serial); try{ localStorage.setItem(KEY,JSON.stringify(store)); }catch(_){} }; if(now) f(); else saveT=setTimeout(f,250); }
+function save(now){ clearTimeout(saveT); const f=()=>{ store.list[store.cur].items=placed.map(serial); let ok=true; try{ localStorage.setItem(KEY,JSON.stringify(store)); }catch(_){ ok=false; } savedNote(ok); }; if(now) f(); else saveT=setTimeout(f,250); }
 addEventListener('pagehide',()=>save(true)); document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') save(true); });
 const r2=v=>Math.round(v*100)/100;
 function serial(i){ const R=ctx.rooms(); const room=roomOf(i); const o={id:i.id, x:r2(i.x), z:r2(i.z), rot:r2(i.rot)};
@@ -175,7 +182,7 @@ function status(inst){
   if(top>ceil+EPS) hard.add(`the ceiling (${cmTxt(top-ceil)} cm too tall)`);
   return {hard:[...hard], soft:[...soft]};
 }
-function label(p){ const c=CATI[p.id]; const v=variantName(c,p); const n=c.limit>1&&!v?` ${placed.filter(q=>q.id===p.id).indexOf(p)+1}`:''; return c.name+(v?` (${v})`:n); }
+function label(p){ if(p.id==='custom') return p.opts.name||kindName(p.opts.kind); const c=CATI[p.id]; const v=variantName(c,p); const n=c.limit>1&&!v?` ${placed.filter(q=>q.id===p.id).indexOf(p)+1}`:''; return c.name+(v?` (${v})`:n); }
 
 // gaps from the item's outer box to the nearest wall, fixture or furniture in each plan direction
 const DIRS=[{k:'N',ax:0,s:-1,arrow:'↑'},{k:'S',ax:0,s:1,arrow:'↓'},{k:'W',ax:1,s:1,arrow:'←'},{k:'E',ax:1,s:-1,arrow:'→'}];
@@ -227,6 +234,12 @@ function drawOV(){
   for(const p of placed){ const st=p.st||{hard:[],soft:[]}; const m=p===sel?mats.sel:st.hard.length?mats.hard:st.soft.length?mats.soft:mats.line; const o=outline(p); OV.add(lineLoop(o,m));
     if(p===sel){ OV.add(fill(o,st.hard.length?mats.fillHard:st.soft.length?mats.fillSoft:mats.fillSel)); }
     else if(st.hard.length) OV.add(fill(o,mats.fillHard)); }
+  if(sel){ const b=bbOf(outline(sel)), el=document.createElement('div'); el.className='ftool';
+    el.innerHTML='<button data-act="ccw" title="Turn 90° left">⟲</button><button data-act="cw" title="Turn 90° right">⟳</button>'+(sel.id==='custom'||CATI[sel.id].many?'<button data-act="dup" title="Place another">Copy</button>':'')+'<button data-act="rm" class="rm" title="Remove (Del)">Remove</button>';
+    el.addEventListener('pointerdown',e=>e.stopPropagation());
+    el.addEventListener('click',e=>{ const a=e.target.closest('button')?.dataset.act; if(!a||!sel) return;
+      if(a==='rm') removeItem(sel); else if(a==='dup') addItem(sel.id,sel.id==='custom'?{...sel.opts}:undefined); else { sel.rot=((sel.rot+(a==='ccw'?90:-90))%360+360)%360; changed(sel); } });
+    const to=new CSS2DObject(el); to.position.set(b.x0,OVY,(b.z0+b.z1)/2); OV.add(to); ovLabels.push(to); }
   if(sel){ const G=gaps(sel);
     for(const d of DIRS){ const g=G[d.k]; if(!g) continue; const a=d.ax===0?[g.face,g.mid]:[g.mid,g.face]; const b=d.ax===0?[g.face+d.s*g.g,g.mid]:[g.mid,g.face+d.s*g.g];
       if(g.g>0.2){ const geo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(a[0],OVY,a[1]),new THREE.Vector3(b[0],OVY,b[1])]); const l=new THREE.Line(geo,mats.gap); l.renderOrder=21; OV.add(l);
@@ -239,13 +252,19 @@ function drawOV(){
 const css=`
 #furn .fl-row{display:flex;gap:6px;align-items:center;margin-bottom:6px}
 #furn select,#furn input[type=text]{font:12px var(--sans);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:#fff;color:var(--ink);min-width:0;flex:1}
-#furn .fl-grp{font:600 10.5px var(--sans);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3,#7a848c);margin:10px 0 3px}
-#furn .fl-item{display:grid;grid-template-columns:1fr auto;gap:2px 8px;align-items:center;padding:4px 0;border-top:1px solid var(--line)}
+#furn .fl-grp{display:flex;justify-content:space-between;align-items:baseline;font:700 11.5px var(--sans);text-transform:uppercase;letter-spacing:.07em;color:var(--ink);background:#e7e3db;border-left:4px solid var(--accent);padding:7px 9px;border-radius:5px;margin:18px 0 4px}
+#furn .fl-grp .cnt{font:500 11px var(--sans);text-transform:none;letter-spacing:0;color:var(--ink-2)} #furn .fl-grp .cnt.all{color:#2f8a4e;font-weight:600}
+#furn .fl-filter{grid-template-columns:1fr 1.6fr;margin:10px 0 2px}
+#furn .okpill{font:600 11px var(--sans);color:#fff;background:#2f8a4e;border-radius:11px;padding:3px 9px;white-space:nowrap}
+#furn .plc{color:#2f8a4e;font:600 11px var(--sans);align-self:center;margin-right:2px}
+#furn .fl-item{display:grid;grid-template-columns:1fr auto;gap:2px 8px;align-items:center;padding:6px 8px;border-top:1px solid var(--line);border-left:4px solid transparent}
+#furn .fl-item.done{border-left-color:#2f8a4e;background:#eef6f0} #furn .fl-item.part{border-left-color:#9fcdab}
+#furn .fl-item #fl-card{grid-column:1/3}
 #furn .fl-item b{font:500 12.5px var(--sans)}
 #furn .fl-item .dim{font:11px var(--mono);color:var(--ink-2);grid-column:1}
 #furn .fl-chips{grid-column:1/3;display:flex;flex-wrap:wrap;gap:4px}
-#furn .chip2{font:11px var(--sans);border:1px solid var(--line);border-radius:10px;padding:2px 8px;background:#fff;cursor:pointer}
-#furn .chip2.on{background:var(--accent);border-color:var(--accent);color:#fff}
+#furn .chip2{font:11px var(--sans);border:1px solid #2f8a4e;border-radius:10px;padding:2px 8px;background:#fff;color:#23683b;cursor:pointer}
+#furn .chip2.on{background:#2f8a4e;border-color:#2f8a4e;color:#fff}
 #furn .chip2.hard{border-color:#c0261b;color:#c0261b} #furn .chip2.soft{border-color:#c17a12;color:#a8641f}
 #furn .chip2.on.hard,#furn .chip2.on.soft{color:#fff}
 #furn .btn.sm{padding:3px 8px;font-size:11.5px}
@@ -258,6 +277,17 @@ const css=`
 #fl-card .gaps label{display:flex;align-items:center;justify-content:space-between;gap:4px;font:12px var(--sans)}
 #fl-card input[type=number]{width:64px}
 #fl-card .row label{font-size:12px}
+#furn .fl-saved{font:11px var(--sans);color:var(--ink-2);margin:-2px 0 4px;min-height:15px}
+#furn .fl-saved.ok{color:#2f8a4e;font-weight:600} #furn .fl-saved.bad{color:#b3261e;font-weight:600}
+#fl-new{margin-top:10px}
+#fl-new summary{cursor:pointer;font:500 12.5px var(--sans);color:var(--accent);padding:4px 0}
+#fl-new .fl-dims{display:flex;gap:6px;align-items:flex-end;font:11px var(--sans);color:var(--ink-2)}
+#fl-new .fl-dims label{display:flex;flex-direction:column;gap:2px}
+#fl-new .fl-dims input{width:64px}
+#furn i.ph{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px;border-radius:2px;background:repeating-linear-gradient(135deg,#2e3236 0 3px,#f0a92e 3px 6px)}
+.ftool{pointer-events:auto;display:flex;gap:2px;background:rgba(20,24,27,.86);border-radius:16px;padding:3px;margin-top:-40px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.ftool button{border:0;background:transparent;color:#fff;font:500 12px var(--sans);padding:5px 9px;border-radius:13px;cursor:pointer;white-space:nowrap}
+.ftool button:hover{background:rgba(255,255,255,.15)} .ftool button.rm{color:#ffb4aa}
 #fl-paste textarea{width:100%;height:90px;font:11px var(--mono);box-sizing:border-box;border:1px solid var(--line);border-radius:4px;padding:5px}
 .glabel{font:600 11px var(--mono);color:#fff;background:#2f6f62;padding:1px 5px;border-radius:3px;white-space:nowrap;pointer-events:none}
 `;
@@ -265,9 +295,17 @@ const st=document.createElement('style'); st.textContent=css; document.head.appe
 const box=ctx.panel; box.hidden=false;
 box.innerHTML=`<h2>Furniture</h2>
 <div class="fl-row"><select id="fl-layout" aria-label="Layout"></select><button class="btn sm" id="fl-new">New</button><button class="btn sm" id="fl-dup">Duplicate</button></div>
-<div class="fl-row"><input type="text" id="fl-name" aria-label="Layout name"><button class="btn sm" id="fl-del">Delete</button></div>
-<div id="fl-card" hidden></div>
+<div class="fl-row"><input type="text" id="fl-name" aria-label="Layout name" title="Type a new name, then Rename or Enter"><button class="btn sm" id="fl-ren">Rename</button><button class="btn sm" id="fl-del">Delete</button></div>
+<div class="fl-saved" id="fl-saved">Changes are saved automatically in this browser.</div>
+<div class="seg fl-filter"><button id="fl-f-all" data-f="all">All</button><button id="fl-f-todo" data-f="todo">Not placed yet</button></div>
 <div id="fl-list"></div>
+<details id="fl-new"><summary>+ Add something new (placeholder)</summary>
+  <div class="fl-row"><input type="text" id="fn-name" placeholder="Name, e.g. New sofa" aria-label="Name"></div>
+  <div class="fl-row"><select id="fn-kind" aria-label="Shape">${KINDS.map(k=>`<option value="${k[0]}">${k[1]}</option>`).join('')}</select></div>
+  <div class="fl-dims"><label>Width<input type="number" id="fn-w" min="1" step="0.5"></label><label>Depth<input type="number" id="fn-d" min="1" step="0.5"></label><label>Height<input type="number" id="fn-h" min="1" step="0.5"></label><span>cm</span></div>
+  <div class="btns" style="margin-top:6px"><button class="btn sm" id="fn-place">Place it</button></div>
+  <p class="note" style="margin-top:4px">For things you don't own yet. Built to exactly these sizes, in a striped pattern so they stand out.</p>
+</details>
 <div class="btns" style="margin-top:10px"><button class="btn sm" id="fl-copy">Copy layout</button><button class="btn sm" id="fl-paste-b">Paste layout</button><button class="btn sm" id="fl-clear">Remove all</button></div>
 <div id="fl-paste" hidden style="margin-top:6px"><textarea placeholder="Paste a copied layout here"></textarea><div class="btns" style="margin-top:4px"><button class="btn sm" id="fl-import">Add as new layout</button><button class="btn sm" id="fl-pcancel">Cancel</button></div></div>
 <p class="note">Place and move furniture in <b>Plan</b> view. Drag to move, <kbd>R</kbd> turns 90° (<kbd>Shift</kbd>+<kbd>R</kbd> 15°), arrow keys nudge 1 cm (<kbd>Shift</kbd> 10 cm), <kbd>Del</kbd> removes. Hold <kbd>Alt</kbd> while dragging to stop snapping. Red = hits a wall or fixture, amber = overlaps furniture, a door swing or the hearth.</p>`;
@@ -280,21 +318,35 @@ function renderLayouts(){
   q('#fl-layout').innerHTML=store.list.map((L,i)=>`<option value="${i}"${i===store.cur?' selected':''}>${esc(L.name)}</option>`).join('');
   q('#fl-name').value=store.list[store.cur].name;
 }
+let todoOnly=false; try{ todoOnly=localStorage.getItem('condo5ne.furnFilter')==='todo'; }catch(_){}
 function renderList(){
-  const groups={}; for(const c of CAT) (groups[c.room]||(groups[c.room]=[])).push(c);
-  let h='';
+  const groups={}; for(const c of CAT) if(!c.custom) (groups[c.room]||(groups[c.room]=[])).push(c);
+  const CARD='<div id="fl-card"></div>';   // the selected item's details open right under its row
+  let h='', nTodo=0;
+  const chip=(p,txt)=>{ const s=p.st||{hard:[],soft:[]}; return `<button class="chip2${p===sel?' on':''}${s.hard.length?' hard':s.soft.length?' soft':''}" data-sel="${p.uid}">${esc(txt)}</button>`; };
   for(const room of ROOM_ORDER.concat(Object.keys(groups).filter(r=>!ROOM_ORDER.includes(r)))){ const list=groups[room]; if(!list) continue;
-    h+=`<div class="fl-grp">${esc(room)}</div>`;
-    for(const c of list){ const mine=placed.filter(p=>p.id===c.id); const left=c.limit-mine.length;
-      h+=`<div class="fl-item"><b>${esc(c.name)}${c.many?` <span class="dim">${mine.length?`× ${mine.length}`:''}</span>`:c.qty>1?` <span class="dim">× ${c.qty}</span>`:''}</b>
-        <button class="btn sm" data-place="${c.id}" ${left<=0?'disabled':''}>${left<=0?'Placed':c.many?(mine.length?'Place another':'Place'):c.qty>1?`Place (${left} left)`:'Place'}</button>
+    let rows='', done=0;
+    for(const c of list){ const mine=placed.filter(p=>p.id===c.id), left=c.limit-mine.length, full=c.many?mine.length>0:left<=0, here=sel&&sel.id===c.id;
+      if(full) done++; else nTodo++;
+      if(todoOnly&&full&&!here) continue;
+      const count=c.many?(mine.length?`${mine.length} placed`:''):c.qty>1&&mine.length?`${mine.length} of ${c.qty} placed`:'';
+      const btn=left<=0?`<span class="okpill">✓ Placed</span>`:`<button class="btn sm" data-place="${c.id}">${c.many?(mine.length?'Place another':'Place'):c.qty>1?`Place (${left} left)`:'Place'}</button>`;
+      rows+=`<div class="fl-item${full?' done':mine.length?' part':''}"><b>${esc(c.name)}</b>${btn}
         <span class="dim">${dimTxt(catSize(c))}</span>
         ${c.id===TABLE&&left>0?`<label class="fl-opt"><input type="checkbox" id="fl-withchairs"${withChairs()?' checked':''}> with the dining chairs around it</label>`:''}
-        ${mine.length?`<div class="fl-chips">${mine.map((p,k)=>{ const s=p.st||{hard:[],soft:[]}; const v=variantName(c,p);
-          return `<button class="chip2${p===sel?' on':''}${s.hard.length?' hard':s.soft.length?' soft':''}" data-sel="${p.uid}">${esc(v||(c.limit>1?'#'+(k+1):'Placed'))}</button>`; }).join('')}</div>`:''}
-      </div>`; }
+        ${mine.length?`<div class="fl-chips">${count?`<span class="plc">${count}:</span>`:''}${mine.map((p,k)=>chip(p,variantName(c,p)||(c.limit>1?'#'+(k+1):'Select'))).join('')}</div>`:''}
+        ${here?CARD:''}</div>`; }
+    if(rows) h+=`<div class="fl-grp"><span>${esc(room)}</span><span class="cnt${done===list.length?' all':''}">${done} of ${list.length} placed</span></div>`+rows;
   }
+  const mine=placed.filter(p=>p.id==='custom');
+  const showNew=mine.filter(p=>!todoOnly||p===sel);
+  if(showNew.length){ h+=`<div class="fl-grp"><span>New (placeholders)</span><span class="cnt all">${mine.length} placed</span></div>`;
+    for(const p of showNew) h+=`<div class="fl-item done"><b><i class="ph"></i>${esc(label(p))}</b><button class="btn sm" data-copy="${p.uid}">Place another</button>
+        <span class="dim">${esc(kindName(p.opts.kind))} · ${dimTxt(p.size)}</span>
+        <div class="fl-chips">${chip(p,'Select')}</div>${p===sel?CARD:''}</div>`; }
+  if(!h) h=`<p class="note">Everything is placed.</p>`;
   q('#fl-list').innerHTML=h;
+  q('#fl-f-all').classList.toggle('on',!todoOnly); q('#fl-f-todo').classList.toggle('on',todoOnly); q('#fl-f-todo').textContent=`Not placed yet (${nTodo})`;
 }
 const FACE={N:'north',S:'south',E:'east',W:'west'};
 function facing(inst){ const t=inst.rot*DEG; const fx=Math.sin(t), fz=Math.cos(t);   // front = local +z
@@ -302,9 +354,9 @@ function facing(inst){ const t=inst.rot*DEG; const fx=Math.sin(t), fz=Math.cos(t
   const n=((a%360)+360)%360; const names=['north','north-east','east','south-east','south','south-west','west','north-west']; return names[Math.round(n/45)%8]; }
 const cw=inst=>{ let v=-inst.rot%360; if(v<0) v+=360; return Math.round(v*100)/100; };
 function renderCard(){
-  const card=q('#fl-card'); if(!sel){ card.hidden=true; return; } card.hidden=false;
+  const card=q('#fl-card'); if(!card||!sel) return;
   const c=CATI[sel.id], s=sel.st||{hard:[],soft:[]}, G=gaps(sel), v=variantName(c,sel);
-  let h=`<h3>${esc(c.name)}${v?` · ${esc(v)}`:''}</h3><div class="dim">${dimTxt(sel.size)} (W × D × H)${c.small?` · on ${esc(sel.surf||'the counter')}`:''}</div>`;
+  let h=`<h3>${c.custom?`<i class="ph"></i>${esc(label(sel))} <span class="dim">placeholder</span>`:`${esc(c.name)}${v?` · ${esc(v)}`:''}`}</h3><div class="dim">${dimTxt(sel.size)} (W × D × H)${c.small?` · on ${esc(sel.surf||'the counter')}`:''}</div>`;
   if(s.hard.length) h+=`<div class="st hard">Hits ${esc(s.hard.join(', '))}</div>`;
   if(s.soft.length) h+=`<div class="st soft">Overlaps ${esc(s.soft.join(', '))}</div>`;
   if(!s.hard.length&&!s.soft.length) h+=`<div class="st ok">Fits, nothing in the way</div>`;
@@ -315,6 +367,8 @@ function renderCard(){
   for(const p of c.params){ const val=sel.opts[p.key]??p.def;
     if(p.type==='range') h+=`<div class="row"><label for="fp-${p.key}">${esc(p.label)}</label><span style="display:flex;gap:6px;align-items:center"><input type="range" id="fp-${p.key}" data-param="${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" value="${val}" style="width:100px"><span class="val" style="font:11px var(--mono);width:52px;text-align:right">${cmTxt(val)} cm</span></span></div>`;
     if(p.type==='select') h+=`<div class="row"><label for="fp-${p.key}">${esc(p.label)}</label><select id="fp-${p.key}" data-param="${p.key}" style="flex:0 1 auto">${p.options.map(([k,l])=>`<option value="${k}"${k===val?' selected':''}>${esc(l)}</option>`).join('')}</select></div>`;
+    if(p.type==='text') h+=`<div class="row"><label for="fp-${p.key}">${esc(p.label)}</label><input type="text" id="fp-${p.key}" data-param="${p.key}" value="${esc(val)}" placeholder="${esc(kindName(sel.opts.kind))}" style="flex:0 1 150px"></div>`;
+    if(p.type==='cm') h+=`<div class="row"><label for="fp-${p.key}">${esc(p.label)}</label><span><input type="number" id="fp-${p.key}" data-param="${p.key}" min="1" step="0.5" value="${cmTxt(val)}"> cm</span></div>`;
     if(p.type==='check') h+=`<div class="row"><label for="fp-${p.key}">${esc(p.label)}</label><input type="checkbox" id="fp-${p.key}" data-param="${p.key}"${val?' checked':''}></div>`;
   }
   if(sel.id===TABLE){ const n=linked(sel).length, left=CATI[CHAIR].limit-placed.filter(p=>p.id===CHAIR).length;
@@ -330,10 +384,10 @@ function refreshUI(){ renderList(); renderCard(); drawOV(); }
 function evalAll(){ for(const p of placed) p.st=status(p); }
 function changed(inst, opt={}){ place(inst); if(inst.with) relink(inst); evalAll(); refreshUI(); if(!opt.nosave) save(); ctx.changed&&ctx.changed(); }
 function select(inst){ sel=inst; refreshUI(); }
-function addItem(id){
+function addItem(id,preset){
   const c=CATI[id]; const mine=placed.filter(p=>p.id===id); if(mine.length>=c.limit) return;
-  const opts={}; const vp=c.params.find(p=>p.type==='select');
-  if(vp){ const used=new Set(mine.map(p=>p.opts[vp.key]??vp.def)); const free=vp.options.find(o=>!used.has(o[0])); if(free) opts[vp.key]=free[0]; }
+  const opts=preset?{...preset}:{}; const vp=c.params.find(p=>p.type==='select');
+  if(vp&&!preset){ const used=new Set(mine.map(p=>p.opts[vp.key]??vp.def)); const free=vp.options.find(o=>!used.has(o[0])); if(free) opts[vp.key]=free[0]; }
   if(ctx.mode()!=='plan') ctx.setMode('plan');
   const t=ctx.viewCenter(); let x=t.x, z=t.z; if(ctx.roomAt(x,z)==='out'){ const L=ctx.rooms().living; x=(L.x0+L.x1)/2; z=(L.z0+L.z1)/2; }
   const inst=makeInst({id,opts,x,z,rot:0}); placed.push(inst); rebuild(inst);
@@ -378,11 +432,24 @@ function loadLayout(i,nosave){
   for(const d of store.list[i].items||[]){ if(!CATI[d.id]) continue; const inst=makeInst(d); placed.push(inst); rebuild(inst); }
   evalAll(); renderLayouts(); refreshUI(); save(true);
 }
+function renameLayout(){ const inp=q('#fl-name'), v=inp.value.trim(), L=store.list[store.cur];
+  if(!v||v===L.name){ inp.value=L.name; return; }
+  if(store.list.some((x,i)=>x.name===v&&i!==store.cur)){ flash(`"${v}" is already used`,true); inp.value=L.name; return; }
+  L.name=v; save(true); renderLayouts(); flash(`Renamed to "${v}"`); }
+function flash(msg,bad){ const n=q('#fl-saved'); n.textContent=msg; n.className='fl-saved '+(bad?'bad':'ok'); clearTimeout(flash.t); flash.t=setTimeout(()=>{ n.className='fl-saved'; n.textContent='Changes are saved automatically in this browser.'; },2500); }
+function savedNote(ok){ const n=q('#fl-saved'); if(!n||n.classList.contains('bad')) return; if(!ok) return flash('Could not save: browser storage is blocked (private window?)',true);
+  if(n.classList.contains('ok')&&/Renamed/.test(n.textContent)) return; flash(`✓ Saved "${store.list[store.cur].name}"`); }
 const uniq=n=>{ let s=n, k=2; while(store.list.some(L=>L.name===s)) s=`${n} (${k++})`; return s; };
 
 box.addEventListener('click',e=>{
   const t=e.target.closest('button'); if(!t) return;
+  if(t.id==='fl-ren'){ renameLayout(); return; }
+  if(t.dataset.f){ todoOnly=t.dataset.f==='todo'; try{ localStorage.setItem('condo5ne.furnFilter',todoOnly?'todo':'all'); }catch(_){} renderList(); renderCard(); return; }
   if(t.dataset.place) addItem(t.dataset.place);
+  else if(t.dataset.copy){ const p=placed.find(p=>p.uid===+t.dataset.copy); if(p) addItem('custom',{...p.opts}); }
+  else if(t.id==='fn-place'){ const n=k=>parseFloat(q('#fn-'+k).value)/2.54, w=n('w'), d=n('d'), hh=n('h');
+    if(!(w>0&&d>0&&hh>0)){ t.textContent='Enter all 3 sizes'; setTimeout(()=>t.textContent='Place it',1600); return; }
+    addItem('custom',{name:q('#fn-name').value.trim(), kind:q('#fn-kind').value, w, d, h:hh}); q('#fn-name').value=''; }
   else if(t.dataset.sel){ const p=placed.find(p=>p.uid===+t.dataset.sel); if(ctx.mode()!=='plan') ctx.setMode('plan'); select(sel===p?null:p); }
   else if(t.dataset.rot&&sel){ sel.rot=((sel.rot+(+t.dataset.rot))%360+360)%360; changed(sel); }
   else if(t.id==='fl-remove'&&sel) removeItem(sel);
@@ -407,14 +474,17 @@ box.addEventListener('click',e=>{
 });
 box.addEventListener('change',e=>{
   const t=e.target;
+  if(t.id==='fn-kind'){ fillNew(); return; }
   if(t.id==='fl-withchairs'){ try{ localStorage.setItem('condo5ne.tableChairs',t.checked?'1':'0'); }catch(_){} return; }
   if(t.id==='fl-layout') loadLayout(+t.value);
-  else if(t.id==='fl-name'){ const v=t.value.trim(); if(v&&!store.list.some((L,i)=>L.name===v&&i!==store.cur)){ store.list[store.cur].name=v; save(true); } renderLayouts(); }
+  else if(t.id==='fl-name') renameLayout();
   else if(t.id==='fl-rot'&&sel){ const v=parseFloat(t.value); if(isFinite(v)){ sel.rot=((-v)%360+360)%360; changed(sel); } }
   else if(t.dataset.gap&&sel){ const v=parseFloat(t.value)/2.54; const G=gaps(sel)[t.dataset.gap]; if(!isFinite(v)||!G||v<0) return renderCard();
     const d=G.d, delta=(G.g-v)*d.s; if(d.ax===0) sel.x+=delta; else sel.z+=delta; changed(sel); }
-  else if(t.dataset.param&&sel){ const p=CATI[sel.id].params.find(p=>p.key===t.dataset.param); sel.opts[p.key]=p.type==='check'?t.checked:p.type==='range'?parseFloat(t.value):t.value; rebuild(sel); changed(sel); }
+  else if(t.dataset.param&&sel){ const p=CATI[sel.id].params.find(p=>p.key===t.dataset.param); let v=p.type==='check'?t.checked:p.type==='range'?parseFloat(t.value):p.type==='cm'?parseFloat(t.value)/2.54:p.type==='text'?t.value.trim():t.value;
+    if(p.type==='cm'&&!(v>0)) return renderCard(); sel.opts[p.key]=v; rebuild(sel); changed(sel); }
 });
+box.addEventListener('keydown',e=>{ if(e.target.id==='fl-name'&&e.key==='Enter'){ e.preventDefault(); e.target.blur(); } });
 box.addEventListener('input',e=>{ const t=e.target; if(t.type==='range'&&t.dataset.param){ const s=t.parentElement.querySelector('.val'); if(s) s.textContent=cmTxt(parseFloat(t.value))+' cm'; } });
 
 /* ------------------------------------------------------------ pointer (Plan view) */
@@ -477,6 +547,8 @@ function blocks(x,z,r){ for(const p of placed){ if(CATI[p.id].small||!p.w) conti
   if(x<q.bb.x0-r||x>q.bb.x1+r||z<q.bb.z0-r||z>q.bb.z1+r) continue; if(distPoly(q.poly,x,z)<r) return true; } } return false; }
 function hitClient(e){ if(mode!=='plan') return null; const p=planPoint(e); return p?hitAt(p.x,p.z):null; }
 
+function fillNew(){ const k=KINDS.find(k=>k[0]===q('#fn-kind').value)||KINDS[0]; ['w','d','h'].forEach((x,i)=>q('#fn-'+x).value=Math.round(k[2][i]*2.54)); }
+fillNew();
 renderLayouts();
 for(const d of store.list[store.cur].items||[]){ if(!CATI[d.id]) continue; const inst=makeInst(d); placed.push(inst); }
 loadObstacles();
