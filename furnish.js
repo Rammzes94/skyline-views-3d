@@ -108,12 +108,24 @@ function measureFor(inst, g){ const k=inst.id+JSON.stringify(optsOf(inst)); if(!
 const KEY='condo5ne.layouts';
 let store=null;
 try{ store=JSON.parse(localStorage.getItem(KEY)||'null'); }catch(_){}
-if(!store||!Array.isArray(store.list)||!store.list.length) store={cur:0, list:[{name:'Layout 1', items:[]}]};
-for(const L of (window.CONDO_LAYOUTS||[])) if(L&&L.name&&!store.list.some(x=>x.name===L.name)) store.list.push({name:L.name, items:L.items||[]});
+// Every layout has a stable id and a change stamp t (ms). sig is its content, so any change bumps t;
+// sync keeps whichever copy of a layout changed last. Deleted layouts are remembered in store.gone.
+const newId=()=>'L'+Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>(b%36).toString(36)).join('');
+const canon=v=>Array.isArray(v)?'['+v.map(canon).join(',')+']':v&&typeof v==='object'?'{'+Object.keys(v).filter(k=>v[k]!==undefined).sort().map(k=>JSON.stringify(k)+':'+canon(v[k])).join(',')+'}':JSON.stringify(v);
+const sigOf=L=>canon({n:L.name,i:L.items||[]});
+const mkLayout=(name,items)=>({id:newId(), name, items:items||[], t:Date.now(), sig:''});
+if(!store||!Array.isArray(store.list)||!store.list.length) store={cur:0, list:[{id:newId(), name:'Layout 1', items:[], t:0}]};
+for(const L of (window.CONDO_LAYOUTS||[])) if(L&&L.name&&!store.list.some(x=>x.name===L.name)) store.list.push({id:newId(), name:L.name, items:L.items||[], t:0});
+store.gone=store.gone||{};
+for(const L of store.list){ if(!L.id) L.id=newId(); if(typeof L.t!=='number') L.t=(L.items&&L.items.length)?Date.now():0; if(L.sig==null) L.sig=sigOf(L); }
 if(!(store.cur>=0&&store.cur<store.list.length)) store.cur=0;
 let saveT=null;
-function save(now){ clearTimeout(saveT); const f=()=>{ store.list[store.cur].items=placed.map(serial); let ok=true; try{ localStorage.setItem(KEY,JSON.stringify(store)); }catch(_){ ok=false; } savedNote(ok); }; if(now) f(); else saveT=setTimeout(f,250); }
-addEventListener('pagehide',()=>save(true)); document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') save(true); });
+function persist(){ try{ localStorage.setItem(KEY,JSON.stringify(store)); return true; }catch(_){ return false; } }
+function doSave(quiet){ saveT=null; store.list[store.cur].items=placed.map(serial);
+  for(const L of store.list){ const s=sigOf(L); if(s!==L.sig){ L.sig=s; L.t=Date.now(); } }
+  const ok=persist(); if(!quiet) savedNote(ok); syncDirty(); }
+function save(now){ clearTimeout(saveT); saveT=null; if(now) doSave(); else saveT=setTimeout(doSave,250); }
+addEventListener('pagehide',()=>{ save(true); syncPush(); }); document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden'){ save(true); syncPush(); } });
 const r2=v=>Math.round(v*100)/100;
 function serial(i){ const R=ctx.rooms(); const room=roomOf(i); const o={id:i.id, x:r2(i.x), z:r2(i.z), rot:r2(i.rot)};
   if(room){ o.room=room; o.rx=r2(i.x-R[room].x0); o.rz=r2(i.z-R[room].z0); }
@@ -278,6 +290,12 @@ const css=`
 #fl-card input[type=number]{width:64px}
 #fl-card .row label{font-size:12px}
 #furn .fl-saved{font:11px var(--sans);color:var(--ink-2);margin:-2px 0 4px;min-height:15px}
+#furn .fl-sync{border:1px solid var(--line);border-radius:6px;padding:7px 8px;margin:0 0 8px;font:12px var(--sans);color:var(--ink-2)}
+#furn .fl-sync .st{display:flex;align-items:center;gap:6px;margin-bottom:5px;color:var(--ink)} #furn .fl-sync .dot{width:8px;height:8px;border-radius:50%;background:#9aa0a6;flex:none}
+#furn .fl-sync .dot.ok{background:#2f8a4e} #furn .fl-sync .dot.busy{background:#d08a1c} #furn .fl-sync .dot.bad{background:#b3261e}
+#furn .fl-sync .btns{margin:0} #furn .fl-sync input{width:100%;box-sizing:border-box;font:11px var(--mono);padding:5px;border:1px solid var(--line);border-radius:4px;margin:5px 0}
+#furn .fl-sync .qr{display:flex;justify-content:center;margin:6px 0} #furn .fl-sync .qr svg{width:168px;height:168px;background:#fff;border-radius:4px}
+#furn .fl-sync p{margin:4px 0 0;font-size:11px;line-height:1.4}
 #furn .fl-saved.ok{color:#2f8a4e;font-weight:600} #furn .fl-saved.bad{color:#b3261e;font-weight:600}
 #fl-new{margin-top:10px}
 #fl-new summary{cursor:pointer;font:500 12.5px var(--sans);color:var(--accent);padding:4px 0}
@@ -297,6 +315,7 @@ box.innerHTML=`<h2>Furniture</h2>
 <div class="fl-row"><select id="fl-layout" aria-label="Layout"></select><button class="btn sm" id="fl-new">New</button><button class="btn sm" id="fl-dup">Duplicate</button></div>
 <div class="fl-row"><input type="text" id="fl-name" aria-label="Layout name" title="Type a new name, then Rename or Enter"><button class="btn sm" id="fl-ren">Rename</button><button class="btn sm" id="fl-del">Delete</button></div>
 <div class="fl-saved" id="fl-saved">Changes are saved automatically in this browser.</div>
+<div class="fl-sync" id="fl-sync"></div>
 <div class="seg fl-filter"><button id="fl-f-all" data-f="all">All</button><button id="fl-f-todo" data-f="todo">Not placed yet</button></div>
 <div id="fl-list"></div>
 <details id="fl-new"><summary>+ Add something new (placeholder)</summary>
@@ -436,13 +455,115 @@ function renameLayout(){ const inp=q('#fl-name'), v=inp.value.trim(), L=store.li
   if(!v||v===L.name){ inp.value=L.name; return; }
   if(store.list.some((x,i)=>x.name===v&&i!==store.cur)){ flash(`"${v}" is already used`,true); inp.value=L.name; return; }
   L.name=v; save(true); renderLayouts(); flash(`Renamed to "${v}"`); }
-function flash(msg,bad){ const n=q('#fl-saved'); n.textContent=msg; n.className='fl-saved '+(bad?'bad':'ok'); clearTimeout(flash.t); flash.t=setTimeout(()=>{ n.className='fl-saved'; n.textContent='Changes are saved automatically in this browser.'; },2500); }
+const baseNote=()=>sync.code?'Changes are saved automatically and synced to your devices.':'Changes are saved automatically in this browser.';
+function flash(msg,bad){ const n=q('#fl-saved'); n.textContent=msg; n.className='fl-saved '+(bad?'bad':'ok'); clearTimeout(flash.t); flash.t=setTimeout(()=>{ n.className='fl-saved'; n.textContent=baseNote(); },2500); }
 function savedNote(ok){ const n=q('#fl-saved'); if(!n||n.classList.contains('bad')) return; if(!ok) return flash('Could not save: browser storage is blocked (private window?)',true);
   if(n.classList.contains('ok')&&/Renamed/.test(n.textContent)) return; flash(`✓ Saved "${store.list[store.cur].name}"`); }
 const uniq=n=>{ let s=n, k=2; while(store.list.some(L=>L.name===s)) s=`${n} (${k++})`; return s; };
 
+/* ------------------------------------------------------------ sync across devices (Firebase Firestore)
+   One document per "space" (spaces/<code>) holds every layout by id. The code is long and random and only
+   travels in the sync link, so it is the key: the database rules refuse reads without it and refuse listing. */
+const FB={apiKey:'AIzaSyB8OeWPqJcOxq4-wPxqGzhToOjXn7q2TwY', authDomain:'skyline-views-d86a41.firebaseapp.com', projectId:'skyline-views-d86a41', appId:'1:325220433516:web:9908d7b6e81ac4f16da249'};
+const FBV='https://www.gstatic.com/firebasejs/11.0.2/', SYNCKEY='condo5ne.sync';
+const sync=window.__furnSync={pushes:0, code:null, ref:null, fs:null, ready:false, state:'off', err:'', pushed:{}, timer:null, unsub:null, open:false, joinOpen:false, busy:false};
+const DEVICE=(()=>{ try{ let d=localStorage.getItem('condo5ne.device'); if(!d){ d=newId(); localStorage.setItem('condo5ne.device',d); } return d; }catch(_){ return newId(); } })();
+const codeOf=v=>{ const m=/(?:sync=)?([A-Za-z0-9]{24,64})\s*$/.exec((v||'').trim()); return m?m[1]:null; };
+try{ sync.code=localStorage.getItem(SYNCKEY); }catch(_){}
+{ const m=/[#&]sync=([A-Za-z0-9]{24,64})/.exec(location.hash);       // opened from a sync link
+  if(m){ sync.code=m[1]; try{ localStorage.setItem(SYNCKEY,sync.code); }catch(_){} try{ history.replaceState(null,'',location.pathname+location.search+'#plan'); }catch(_){} } }
+// from the online site, link to the page itself; from a local copy, to the public site (a phone can't open a file on this computer)
+const syncLink=()=>(location.protocol==='https:'?location.origin+location.pathname:'https://rammzes94.github.io/skyline-views-3d/')+'#sync='+sync.code;
+function setSync(state,err){ sync.state=state; sync.err=err?String(err.message||err).slice(0,140):''; renderSync(); }
+async function syncStart(){
+  if(!sync.code||sync.ref) return; setSync('connecting');
+  try{
+    const [{initializeApp, getApps}, fs]=await Promise.all([import(FBV+'firebase-app.js'), import(FBV+'firebase-firestore.js')]);
+    const app=getApps()[0]||initializeApp(FB); sync.fs=fs;
+    const db=sync.db||(sync.db=fs.initializeFirestore(app,{ignoreUndefinedProperties:true}));
+    sync.ref=fs.doc(db,'spaces',sync.code);
+    sync.unsub=fs.onSnapshot(sync.ref, snap=>onRemote(snap), err=>{ setSync('error',err); });
+  }catch(e){ sync.ref=null; setSync('error',e); setTimeout(()=>{ if(sync.code&&!sync.ref) syncStart(); },15000); }
+}
+function syncStop(){ if(sync.unsub) sync.unsub(); clearTimeout(sync.timer); Object.assign(sync,{ref:null, unsub:null, ready:false, pushed:{}}); }
+function onRemote(snap){
+  // (our own writes echo back too; their stamps match what we have, so applyRemote leaves them alone)
+  const R=(snap.exists()&&snap.data().layouts)||{};
+  for(const id in R) if(R[id]&&typeof R[id].t==='number') sync.pushed[id]=Math.max(sync.pushed[id]||0,R[id].t);
+  applyRemote(R); sync.ready=true; if(sync.state!=='saving') setSync(navigator.onLine===false?'offline':'ok'); syncDirty(0);
+}
+function applyRemote(R){
+  if(saveT){ clearTimeout(saveT); doSave(true); }                    // fold in a pending local edit first
+  const cur=store.list[store.cur]; let curChanged=false, listChanged=false;
+  for(const [id,r] of Object.entries(R)){
+    if(!r||typeof r.t!=='number') continue;
+    const i=store.list.findIndex(L=>L.id===id), L=store.list[i];
+    if(r.del){ if(L&&L.t<=r.t){ store.list.splice(i,1); listChanged=true; } store.gone[id]=Math.max(store.gone[id]||0,r.t); continue; }
+    if((store.gone[id]||0)>=r.t) continue;
+    if(!L){ const N={id, name:String(r.name||'Layout'), items:Array.isArray(r.items)?r.items:[], t:r.t}; N.sig=sigOf(N); store.list.push(N); listChanged=true; }
+    else if(r.t>L.t){ L.name=String(r.name||L.name); L.items=Array.isArray(r.items)?r.items:[]; L.t=r.t; L.sig=sigOf(L); listChanged=true; if(L===cur) curChanged=true; }
+  }
+  // a device's untouched, empty starter layout steps aside for the synced ones
+  if(!sync.ready&&Object.values(R).some(r=>r&&!r.del)){ const n=store.list.length; store.list=store.list.filter(L=>!(L.t===0&&!(L.items||[]).length&&!R[L.id])); if(store.list.length!==n) listChanged=true; }
+  if(!store.list.length) store.list.push(mkLayout('Layout 1'));
+  if(!listChanged) return;
+  let ci=store.list.indexOf(cur); if(ci<0){ ci=0; curChanged=true; }
+  store.cur=ci; persist();
+  if(curChanged){ if(drag&&!drag.none){ sync.reload=true; } else loadLayout(ci,true); }
+  else renderLayouts();
+  q('#fl-saved').textContent=baseNote();
+}
+function syncDirty(ms){ if(!sync.ready) return; clearTimeout(sync.timer); sync.timer=setTimeout(syncPush, ms??600); }
+async function syncPush(){
+  if(!sync.ready||!sync.ref) return; clearTimeout(sync.timer);
+  const fs=sync.fs, data={layouts:{}}, fields=[], sent={};
+  for(const L of store.list) if(L.t>(sync.pushed[L.id]||0)){ data.layouts[L.id]={name:L.name, items:JSON.parse(JSON.stringify(L.items||[])), t:L.t}; sent[L.id]=L.t; }
+  for(const [id,t] of Object.entries(store.gone)) if(t>(sync.pushed[id]||0)){ data.layouts[id]={del:true, t}; sent[id]=t; }
+  const ids=Object.keys(sent); if(!ids.length) return;
+  for(const id of ids){ fields.push(new fs.FieldPath('layouts',id)); sync.pushed[id]=sent[id]; }   // claimed now, so a second push doesn't resend
+  sync.pushes++; data.updated=Date.now(); data.device=DEVICE; fields.push('updated','device');
+  setSync(navigator.onLine===false?'offline':'saving');
+  try{ await fs.setDoc(sync.ref,data,{mergeFields:fields}); if(sync.state==='saving'||sync.state==='offline') setSync('ok'); }
+  catch(e){ for(const id of ids) if(sync.pushed[id]===sent[id]) sync.pushed[id]=0; setSync('error',e); syncDirty(10000); }
+}
+addEventListener('online',()=>{ if(sync.state==='offline') setSync('saving'); });
+addEventListener('offline',()=>{ if(sync.code) setSync('offline'); });
+function syncTurnOn(code){ syncStop(); sync.code=code||('S'+newId()+newId().slice(1)); try{ localStorage.setItem(SYNCKEY,sync.code); }catch(_){}
+  sync.joinOpen=false; sync.open=!code; q('#fl-saved').textContent=baseNote(); syncStart(); renderSync(); }
+function syncTurnOff(){ syncStop(); sync.code=null; sync.open=false; try{ localStorage.removeItem(SYNCKEY); }catch(_){} setSync('off'); q('#fl-saved').textContent=baseNote(); }
+let qrLib=null;
+function qrSvg(text){ if(!window.qrcode){ if(!qrLib){ qrLib=document.createElement('script'); qrLib.src='https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'; qrLib.onload=renderSync; document.head.appendChild(qrLib); } return '<span>Loading QR code…</span>'; }
+  const c=window.qrcode(0,'M'); c.addData(text); c.make(); return c.createSvgTag(4,2); }
+function renderSync(){
+  const el=q('#fl-sync'); if(!el) return;
+  if(!sync.code){
+    el.innerHTML=`<div class="st"><span class="dot"></span><span><b>Sync is off</b>: layouts are only in this browser.</span></div>
+      <div class="btns"><button class="btn sm" id="fs-on">Turn on sync</button><button class="btn sm" id="fs-join">Join with a link</button></div>
+      ${sync.joinOpen?`<input id="fs-link" placeholder="Paste the sync link here" autocomplete="off"><div class="btns"><button class="btn sm" id="fs-go">Join</button><button class="btn sm" id="fs-jx">Cancel</button></div>
+      <p>Get the link from <b>Add a device</b> on the device that already syncs.</p>`:''}`; return; }
+  const S={connecting:['busy','Connecting…'], ok:['ok','Synced across your devices'], saving:['busy','Syncing…'],
+    offline:['busy','Offline: saved here, syncs when you are back online'], error:['bad','Sync problem, saved here and retrying'], off:['','']}[sync.state]||['busy','Connecting…'];
+  el.innerHTML=`<div class="st"><span class="dot ${S[0]}"></span><b>${S[1]}</b></div>${sync.state==='error'&&sync.err?`<p>${esc(sync.err)}</p>`:''}
+    <div class="btns"><button class="btn sm" id="fs-add">${sync.open?'Hide':'Add a device'}</button><button class="btn sm" id="fs-off">Turn off here</button></div>
+    ${sync.open?`<div class="qr">${qrSvg(syncLink())}</div><p>Scan with the other device's camera, or open this link there:</p>
+      <input id="fs-url" readonly value="${esc(syncLink())}"><div class="btns"><button class="btn sm" id="fs-copy">Copy link</button></div>
+      <p>Using the site from your phone's home screen? Open it there and tap <b>Join with a link</b>, then paste the link. Anyone with the link can see and change these layouts.</p>`:''}`;
+}
+function syncClick(t){
+  if(t.id==='fs-on'){ syncTurnOn(); return true; }
+  if(t.id==='fs-join'){ sync.joinOpen=!sync.joinOpen; renderSync(); if(sync.joinOpen) q('#fs-link').focus(); return true; }
+  if(t.id==='fs-jx'){ sync.joinOpen=false; renderSync(); return true; }
+  if(t.id==='fs-go'){ const c=codeOf(q('#fs-link').value); if(!c){ t.textContent='Not a sync link'; setTimeout(()=>t.textContent='Join',1600); return true; } syncTurnOn(c); return true; }
+  if(t.id==='fs-add'){ sync.open=!sync.open; renderSync(); return true; }
+  if(t.id==='fs-off'){ if(t.dataset.arm!=='1'){ t.dataset.arm='1'; t.textContent='Sure? Layouts stay here'; setTimeout(()=>{ if(t.isConnected){ t.dataset.arm=''; t.textContent='Turn off here'; } },3000); return true; } syncTurnOff(); return true; }
+  if(t.id==='fs-copy'){ const u=syncLink(); const done=ok=>{ t.textContent=ok?'Copied':'Select it above and copy'; setTimeout(()=>t.textContent='Copy link',1600); if(!ok) q('#fs-url').select(); };
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(u).then(()=>done(true),()=>done(false)); else done(false); return true; }
+  return false;
+}
+
 box.addEventListener('click',e=>{
   const t=e.target.closest('button'); if(!t) return;
+  if(syncClick(t)) return;
   if(t.id==='fl-ren'){ renameLayout(); return; }
   if(t.dataset.f){ todoOnly=t.dataset.f==='todo'; try{ localStorage.setItem('condo5ne.furnFilter',todoOnly?'todo':'all'); }catch(_){} renderList(); renderCard(); return; }
   if(t.dataset.place) addItem(t.dataset.place);
@@ -457,10 +578,10 @@ box.addEventListener('click',e=>{
   else if(t.id==='fl-detach1'&&sel){ delete sel.with; refreshUI(); save(); }
   else if(t.id==='fl-addchairs'&&sel){ addChairs(sel); changed(sel); }
   else if(t.id==='fl-done') select(null);
-  else if(t.id==='fl-new'){ save(true); store.list.push({name:uniq('Layout '+(store.list.length+1)), items:[]}); loadLayout(store.list.length-1); }
-  else if(t.id==='fl-dup'){ save(true); const L=store.list[store.cur]; store.list.push({name:uniq(L.name+' copy'), items:JSON.parse(JSON.stringify(L.items))}); loadLayout(store.list.length-1); }
+  else if(t.id==='fl-new'){ save(true); store.list.push(mkLayout(uniq('Layout '+(store.list.length+1)))); loadLayout(store.list.length-1); }
+  else if(t.id==='fl-dup'){ save(true); const L=store.list[store.cur]; store.list.push(mkLayout(uniq(L.name+' copy'), JSON.parse(JSON.stringify(L.items)))); loadLayout(store.list.length-1); }
   else if(t.id==='fl-del'){ if(t.dataset.arm!=='1'){ t.dataset.arm='1'; t.textContent='Sure?'; setTimeout(()=>{ t.dataset.arm=''; t.textContent='Delete'; },2500); return; }
-    store.list.splice(store.cur,1); if(!store.list.length) store.list.push({name:'Layout 1',items:[]}); placed.forEach(p=>p.g&&FG.remove(p.g)); placed=[]; loadLayout(Math.min(store.cur,store.list.length-1),true); }
+    store.gone[store.list[store.cur].id]=Date.now(); store.list.splice(store.cur,1); if(!store.list.length) store.list.push(mkLayout('Layout 1')); placed.forEach(p=>p.g&&FG.remove(p.g)); placed=[]; loadLayout(Math.min(store.cur,store.list.length-1),true); }
   else if(t.id==='fl-clear'){ if(!placed.length) return; if(t.dataset.arm!=='1'){ t.dataset.arm='1'; t.textContent='Remove all?'; setTimeout(()=>{ t.dataset.arm=''; t.textContent='Remove all'; },2500); return; }
     t.dataset.arm=''; t.textContent='Remove all'; for(const p of placed) p.g&&FG.remove(p.g); placed=[]; sel=null; evalAll(); refreshUI(); save(); }
   else if(t.id==='fl-copy'){ save(true); const L=store.list[store.cur]; const txt='{"name":'+JSON.stringify(L.name)+',"items":[\n'+L.items.map(i=>'  '+JSON.stringify(i)).join(',\n')+'\n]}';
@@ -469,7 +590,7 @@ box.addEventListener('click',e=>{
   else if(t.id==='fl-paste-b'){ q('#fl-paste').hidden=false; q('#fl-paste textarea').value=''; q('#fl-paste textarea').focus(); }
   else if(t.id==='fl-pcancel') q('#fl-paste').hidden=true;
   else if(t.id==='fl-import'){ try{ let d=JSON.parse(q('#fl-paste textarea').value); if(Array.isArray(d)) d={name:'Pasted layout',items:d};
-      if(!Array.isArray(d.items)) throw 0; save(true); store.list.push({name:uniq(d.name||'Pasted layout'), items:d.items.filter(i=>i&&CATI[i.id])}); q('#fl-paste').hidden=true; loadLayout(store.list.length-1);
+      if(!Array.isArray(d.items)) throw 0; save(true); store.list.push(mkLayout(uniq(d.name||'Pasted layout'), d.items.filter(i=>i&&CATI[i.id]))); q('#fl-paste').hidden=true; loadLayout(store.list.length-1);
     }catch(_){ t.textContent='Not a layout'; setTimeout(()=>t.textContent='Add as new layout',1600); } }
 });
 box.addEventListener('change',e=>{
@@ -549,7 +670,7 @@ function hitClient(e){ if(mode!=='plan') return null; const p=planPoint(e); retu
 
 function fillNew(){ const k=KINDS.find(k=>k[0]===q('#fn-kind').value)||KINDS[0]; ['w','d','h'].forEach((x,i)=>q('#fn-'+x).value=Math.round(k[2][i]*2.54)); }
 fillNew();
-renderLayouts();
+renderLayouts(); q('#fl-saved').textContent=baseNote(); renderSync(); if(sync.code) syncStart();
 for(const d of store.list[store.cur].items||[]){ if(!CATI[d.id]) continue; const inst=makeInst(d); placed.push(inst); }
 loadObstacles();
 for(const p of placed) rebuild(p);
