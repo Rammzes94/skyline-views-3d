@@ -81,6 +81,12 @@ const MDEF = {
   stem:       ()=>std({color:0x6f7d3c,roughness:.8}),
   mirror:     ()=>std({color:0xe4eaec,metalness:1,roughness:.04}),
   bulb:       ()=>std({color:0xfff3dc,emissive:0xffc977,emissiveIntensity:1.5,roughness:.3}),
+  blanket:    ()=>{ const t=noiseTex('#a9c99c',['#93b886','#c4dcb8'],14,6000,1.2); t.repeat.set(4,4);
+                 return new THREE.MeshPhysicalMaterial({map:t,roughness:1,sheen:.6,sheenRoughness:.7,sheenColor:0xe4f2dc}); },
+  pillow:     ()=>new THREE.MeshPhysicalMaterial({color:0xf2efe8,roughness:1,sheen:.5,sheenRoughness:.6,sheenColor:0xffffff}),
+  plushBlue:  ()=>new THREE.MeshPhysicalMaterial({color:0x6886a5,roughness:1,sheen:.7,sheenRoughness:.6,sheenColor:0xc9d8e8}),
+  plushBody:  ()=>new THREE.MeshPhysicalMaterial({vertexColors:true,roughness:1,sheen:.7,sheenRoughness:.6,sheenColor:0xdfe8f0}),
+  plushDark:  ()=>std({color:0x2b2f35,roughness:.7}),
   sheet:      ()=>std({color:0x5f6f4d,roughness:.95,map:noiseTex('#6a7a57',['#4f5e3e','#7d8c69'],12)}),
   boxSpring:  ()=>std({map:boxSpringTex(),roughness:.9}),
   straw:      ()=>std({map:noiseTex('#dcc79c',['#b89e6a','#efe0bb'],14,6000,2.5),roughness:.9}),
@@ -296,7 +302,7 @@ function palm(o={}){
 }
 
 /* ============================================================ BEDROOM */
-function bed(){
+function bed(o={}){
   const G=new THREE.Group(), br=M('brass');
   const hx=27.1, zh=-40.6, zf=40.6, pr=0.8;            // finials (r 1.4) land exactly on the measured 57 x 84 overall
   bx(G,-27,27,9,17.5,-37.5,37.5,M('boxSpring'),0.7);   // box spring
@@ -322,7 +328,106 @@ function bed(){
   }
   board(zh, 45, 44.6, 53.45, [12,26.5], 9, [12,26.5]);
   board(zf, 30.2, 29.8, 35.45, [14], 9, [14]);
+  if(o.dressed) dressBed(G);
   return G;
+}
+
+/* IKEA BLÅHAJ, the small one: 55 cm (21 5/8 in) long, about 15 cm across the body.
+   Built along +X (snout at +X), belly down, centred on its bounding box. */
+function blahaj(){
+  const S=new THREE.Group(), Lb=17.2;                          // snout to tail stalk; the tail fin adds the rest
+  const prof=[[0,0.55],[0.12,0.85],[0.3,1.7],[0.5,2.6],[0.66,3.0],[0.8,2.9],[0.9,2.4],[0.96,1.7],[0.99,0.9],[1,0]];   // (t, radius)
+  const pts=new THREE.SplineCurve(prof.map(([t,r])=>new THREE.Vector2(r,t*Lb))).getPoints(70).map(v=>new THREE.Vector2(Math.max(0,v.x),v.y));
+  pts.unshift(new THREE.Vector2(0,0)); pts[pts.length-1].x=0;
+  const rAt=xb=>{ for(let i=1;i<pts.length;i++) if(pts[i].y>=xb){ const a=pts[i-1], b=pts[i], k=(xb-a.y)/((b.y-a.y)||1); return a.x+(b.x-a.x)*k; } return 0; };
+  const FY=0.92;                                               // body a little flatter than round
+  const body=new THREE.LatheGeometry(pts,36); body.rotateZ(-Math.PI/2); body.scale(1,FY,1);
+  const P=body.attributes.position, col=new Float32Array(P.count*3), blue=new THREE.Color(0x6886a5), white=new THREE.Color(0xf1f1ec), c=new THREE.Color();
+  for(let i=0;i<P.count;i++){ const y=P.getY(i)/FY, z=P.getZ(i), r=Math.hypot(y,z)||1, v=y/r;     // v: 1 on top, -1 under the belly
+    const k=Math.min(1,Math.max(0,(v+0.22)/0.24)); c.copy(white).lerp(blue,k); col.set([c.r,c.g,c.b],i*3); }
+  body.setAttribute('color',new THREE.BufferAttribute(col,3)); body.computeVertexNormals();
+  mesh(S,body,M('plushBody'));
+  const surf=(xb,a,out=1)=>{ const R=rAt(xb)*out; return [xb, Math.cos(a)*R*FY, Math.sin(a)*R]; };   // a: 0 on top, PI underneath
+  const fin=(shape,th)=>{ const g=new THREE.ExtrudeGeometry(shape,{depth:th,bevelEnabled:true,bevelThickness:0.18,bevelSize:0.18,bevelSegments:3,curveSegments:14}); g.translate(0,0,-th/2); return g; };
+  const sh=(f)=>{ const s=new THREE.Shape(); f(s); return s; };
+  const blueM=M('plushBlue');
+  // first dorsal fin, swept back
+  mesh(S,fin(sh(s=>{ s.moveTo(0.9,-0.9); s.quadraticCurveTo(0.2,2.2,-1.7,3.3); s.quadraticCurveTo(-1.9,1.3,-3.3,-0.9); s.closePath(); }),0.45),blueM, 12.4, rAt(11)*FY, 0);
+  // second dorsal and anal fins, small
+  mesh(S,fin(sh(s=>{ s.moveTo(0.5,-0.5); s.quadraticCurveTo(0.1,0.8,-0.7,1.1); s.quadraticCurveTo(-0.8,0.3,-1.3,-0.5); s.closePath(); }),0.3),blueM, 4.2, rAt(3.6)*FY, 0);
+  const an=mesh(S,fin(sh(s=>{ s.moveTo(0.5,0.5); s.quadraticCurveTo(0.1,-0.7,-0.7,-1.0); s.quadraticCurveTo(-0.8,-0.3,-1.3,0.5); s.closePath(); }),0.3),blueM, 4.4, -rAt(3.8)*FY, 0);
+  // tail fin: big upper lobe, smaller lower lobe
+  mesh(S,fin(sh(s=>{ s.moveTo(0.9,0.55); s.quadraticCurveTo(-1.4,1.9,-4.15,4.1); s.quadraticCurveTo(-3.0,1.6,-2.75,0.15); s.quadraticCurveTo(-3.1,-1.2,-2.2,-2.4);
+    s.quadraticCurveTo(-0.9,-0.9,0.9,-0.55); s.closePath(); }),0.4),blueM, 0.3, 0, 0);
+  // pectoral fins, drooping and swept back
+  const pec=sh(s=>{ s.moveTo(0.9,-0.2); s.quadraticCurveTo(0.5,1.9,-1.9,3.0); s.quadraticCurveTo(-1.5,1.4,-1.8,-0.2); s.closePath(); });
+  for(const sd of[1,-1]){ const m=mesh(S,fin(pec,0.35),blueM, 11.6, -rAt(11.6)*FY*0.45, sd*rAt(11.6)*0.8);
+    m.geometry=m.geometry.clone().rotateX(Math.PI/2); m.scale.z=sd; m.rotation.set(sd*0.5, sd*0.25, 0); }
+  // eyes and mouth
+  for(const sd of[1,-1]){ const e=surf(15.3, sd*1.2, 0.97); sph(S,0.32,M('black'),e[0],e[1],e[2],1,1,0.6,12).rotation.y=sd*0.2; }
+  tube(S,[surf(15.0,Math.PI-0.85,1.01),surf(15.8,Math.PI-0.45,1.02),surf(16.15,Math.PI,1.02),surf(15.8,Math.PI+0.45,1.02),surf(15.0,Math.PI+0.85,1.01)],0.13,M('plushDark'),24,8);
+  // centre on the bounding box and make it exactly 55 cm long
+  const bb=new THREE.Box3().setFromObject(S), k=21.65/(bb.max.x-bb.min.x), cx=(bb.min.x+bb.max.x)/2, cy=(bb.min.y+bb.max.y)/2;
+  const W=new THREE.Group(); S.position.set(-cx,-cy,0); W.add(S); W.scale.setScalar(k); W.userData.length=21.65;
+  return W;
+}
+
+/* Pillow, light green blanket and BLÅHAJ for the brass bed. The shark lies with its head on the pillow and the
+   blanket turned down over its back half. Everything stays inside the bed's 57 x 84 in footprint. */
+function dressBed(G){
+  const top=26, px=0, pz=-28.4, pw=26, pd=17.4, ph=8;               // mattress top; pillow centre and size (standard 26 x 20 in, about 5 in thick)
+  // a puffy pillow: a squared-off ellipsoid, full in the middle, thin at the seams, flattened underneath
+  const pg=new THREE.SphereGeometry(1,64,32), PP=pg.attributes.position, sq=a=>Math.sign(a)*Math.pow(Math.abs(a),0.4);
+  for(let i=0;i<PP.count;i++){ let y=PP.getY(i)*ph/2; if(y<0) y*=0.3; PP.setXYZ(i, sq(PP.getX(i))*pw/2, y, sq(PP.getZ(i))*pd/2); }
+  pg.computeVertexNormals(); const pm=mesh(G,pg,M('pillow'),px,top+0.3*ph/2,pz);
+  // height of the pillow's top surface on a 0.5 in grid, read from the mesh itself
+  const PH={}, cell=(x,z)=>Math.round(x*2)+','+Math.round(z*2);
+  pm.updateMatrixWorld(true); { const v=new THREE.Vector3(); for(let i=0;i<PP.count;i++){ v.fromBufferAttribute(PP,i).applyMatrix4(pm.matrixWorld);
+    for(const [dx,dz] of [[0,0],[0.5,0],[-0.5,0],[0,0.5],[0,-0.5]]){ const k=cell(v.x+dx,v.z+dz); if(!(PH[k]>=v.y)) PH[k]=v.y; } } }
+  const pillowTop=(x,z)=>Math.max(top, PH[cell(x,z)]??top);
+
+  // the shark: head toward the headboard, tilted down toward the foot, resting where it touches
+  const shark=blahaj(), T=new THREE.Group(); shark.rotation.y=Math.PI/2; T.add(shark); T.rotation.x=0.36; T.position.set(3,0,-20.3);
+  G.add(T); T.updateMatrixWorld(true);
+  const wp=[], v=new THREE.Vector3();
+  T.traverse(m=>{ if(!m.isMesh) return; const A=m.geometry.attributes.position; for(let i=0;i<A.count;i+=2){ v.fromBufferAttribute(A,i).applyMatrix4(m.matrixWorld); wp.push(v.clone()); } });
+  let lift=Infinity; for(const p of wp) lift=Math.min(lift, p.y-pillowTop(p.x,p.z));
+  T.position.y=-lift-0.35; for(const p of wp) p.y+=-lift-0.35;            // sinks a little into the pillow, like a plush toy does
+
+  // blanket: a draped sheet over the mattress from zt to the foot, tenting over the shark's back half
+  const zt=-16.5, X0=-27.9, X1=27.9, Z1=38.5, st=0.5, nx=Math.round((X1-X0)/st), nz=Math.round((Z1-zt)/st);
+  const H=new Float32Array((nx+1)*(nz+1)).fill(-1);
+  for(const p of wp){ const i=Math.round((p.x-X0)/st), j=Math.round((p.z-zt)/st); if(i<0||j<0||i>nx||j>nz) continue; const k=j*(nx+1)+i; if(p.y>H[k]) H[k]=p.y; }
+  // the cloth tents over the toy: a cone from every point it rests on, then smoothed so it falls in a soft slope
+  const H2=new Float32Array(H.length).fill(-1), RC=14;
+  for(let j=0;j<=nz;j++) for(let i=0;i<=nx;i++){ const h=H[j*(nx+1)+i]; if(h<0) continue;
+    for(let dj=-RC;dj<=RC;dj++) for(let di=-RC;di<=RC;di++){ const jj=j+dj, ii=i+di; if(jj<0||ii<0||jj>nz||ii>nx) continue;
+      const d=Math.hypot(di,dj)*st, y=h+0.5-0.55*d; const k=jj*(nx+1)+ii; if(y>H2[k]) H2[k]=y; } }
+  for(let pass=0;pass<3;pass++){ const A=H2.slice();
+    for(let j=1;j<nz;j++) for(let i=1;i<nx;i++){ const k=j*(nx+1)+i; let sum=0, n=0;
+      for(let dj=-1;dj<=1;dj++) for(let di=-1;di<=1;di++){ const v=A[k+dj*(nx+1)+di]; sum+=v<0?top+0.8:v; n++; }
+      if(A[k]>=0||sum/n>top+0.8) H2[k]=Math.max(A[k],sum/n); } }
+  const base=top+0.8, fold=6, hem=17.5, E=27, RO=1.4;              // past |x| 27 / z 37.5 the cloth rolls over the edge and hangs to the hem
+  // sample positions: 0.5 in apart, finer where the cloth bends over the edges
+  const fine=(a,b,n)=>Array.from({length:n},(_,k)=>a+(b-a)*(k+1)/(n+1));
+  const xs=[-E-RO, ...fine(-E-RO,-E,7), ...Array.from({length:Math.round(2*E/st)+1},(_,k)=>-E+k*st), ...fine(E,E+RO,7), E+RO];
+  const ZE=37.5, zs=[...Array.from({length:Math.round((ZE-zt)/st)+1},(_,k)=>zt+k*st), ...fine(ZE,ZE+RO,7), ZE+RO];
+  const pos=[], uv=[], idx=[], NX=xs.length;
+  for(const z of zs) for(const x of xs){
+    const i=Math.max(0,Math.min(nx,Math.round((x-X0)/st))), j=Math.max(0,Math.min(nz,Math.round((z-zt)/st)));
+    let y=base+0.12*Math.sin(x*0.35+z*0.12)*Math.sin(z*0.21)+0.08*Math.sin(x*0.9-z*0.5);          // soft wrinkles
+    y+=0.35/(1+Math.exp((z-(zt+fold))*3));                                                         // the turned-down fold is a double layer
+    y=Math.max(y, H2[j*(nx+1)+i]);
+    const e=Math.hypot(Math.max(0,Math.abs(x)-E), Math.max(0,z-ZE));                               // distance past the mattress edge (rounded corner)
+    if(e>0) y-= (y-hem)*(1-Math.cos(Math.min(1,e/RO)*Math.PI/2));
+    pos.push(x,y,z); uv.push((x+30)/60,(z+40)/80); }
+  for(let b=0;b<zs.length-1;b++) for(let a=0;a<NX-1;a++){ const k=b*NX+a; idx.push(k,k+NX,k+1, k+1,k+NX,k+NX+1); }
+  const bg=new THREE.BufferGeometry(); bg.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); bg.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+  bg.setIndex(idx); bg.computeVertexNormals(); const bm=mesh(G,bg,M('blanket')); bm.material.side=THREE.DoubleSide;
+  const hb=x=>{ let a=0; while(a<NX-2&&xs[a+1]<x) a++; const k=(x-xs[a])/(xs[a+1]-xs[a]); return pos[a*3+1]+(pos[(a+1)*3+1]-pos[a*3+1])*Math.max(0,Math.min(1,k)); };
+  // rolled top edge, riding over the shark and following the cloth down both sides
+  const edge=[]; for(const x of xs) if(Math.abs(x)<=E+RO-0.55) edge.push([x, hb(x)+0.05, zt+0.3]);   // stays inside the 57 in frame
+  tube(G,edge,0.5,M('blanket'),160,10);
 }
 
 function dresserTallWhite(){
@@ -710,7 +815,8 @@ const ITEMS = [
     params:[{key:'variant',label:'Which shelf',type:'select',def:'A',options:[['A','Pair, left one'],['B','Pair, right one'],['C','The single one']]}]},
   {id:'plant-palm', name:'Potted palm', room:'Living', many:true, build:palm, photos:[],
     params:[{key:'height',label:'Plant height',type:'range',min:60,max:108,step:0.5,def:104}]},
-  {id:'bed-brass', name:'Brass bed (full)', room:'Bedroom', build:bed, photos:[]},
+  {id:'bed-brass', name:'Brass bed (full)', room:'Bedroom', build:bed, photos:[],
+    params:[{key:'dressed',label:'Pillow, blanket and BLÅHAJ',type:'check',def:true}], note:'Made up with a pillow, a light green blanket and the small IKEA BLÅHAJ shark (55 cm) on the pillow.'},
   {id:'dresser-brown', name:'Brown dresser', room:'Bedroom', build:dresserBrown, photos:[]},
   {id:'vanity-mirror', name:'Hollywood vanity mirror', room:'Bedroom', build:vanityMirror, photos:[], note:'Stands on top of the brown dresser.'},
   {id:'dresser-tall-white', name:'Tall white dresser', room:'Bedroom', build:dresserTallWhite, photos:[]},
