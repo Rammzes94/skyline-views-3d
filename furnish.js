@@ -290,12 +290,9 @@ const css=`
 #fl-card input[type=number]{width:64px}
 #fl-card .row label{font-size:12px}
 #furn .fl-saved{font:11px var(--sans);color:var(--ink-2);margin:-2px 0 4px;min-height:15px}
-#furn .fl-sync{border:1px solid var(--line);border-radius:6px;padding:7px 8px;margin:0 0 8px;font:12px var(--sans);color:var(--ink-2)}
-#furn .fl-sync .st{display:flex;align-items:center;gap:6px;margin-bottom:5px;color:var(--ink)} #furn .fl-sync .dot{width:8px;height:8px;border-radius:50%;background:#9aa0a6;flex:none}
+#furn .fl-sync{display:flex;align-items:center;gap:6px;font:11px var(--sans);color:var(--ink-2);margin:-2px 0 6px;min-height:15px}
+#furn .fl-sync .dot{width:8px;height:8px;border-radius:50%;background:#9aa0a6;flex:none}
 #furn .fl-sync .dot.ok{background:#2f8a4e} #furn .fl-sync .dot.busy{background:#d08a1c} #furn .fl-sync .dot.bad{background:#b3261e}
-#furn .fl-sync .btns{margin:0} #furn .fl-sync input{width:100%;box-sizing:border-box;font:11px var(--mono);padding:5px;border:1px solid var(--line);border-radius:4px;margin:5px 0}
-#furn .fl-sync .qr{display:flex;justify-content:center;margin:6px 0} #furn .fl-sync .qr svg{width:168px;height:168px;background:#fff;border-radius:4px}
-#furn .fl-sync p{margin:4px 0 0;font-size:11px;line-height:1.4}
 #furn .fl-saved.ok{color:#2f8a4e;font-weight:600} #furn .fl-saved.bad{color:#b3261e;font-weight:600}
 #fl-new{margin-top:10px}
 #fl-new summary{cursor:pointer;font:500 12.5px var(--sans);color:var(--accent);padding:4px 0}
@@ -455,40 +452,36 @@ function renameLayout(){ const inp=q('#fl-name'), v=inp.value.trim(), L=store.li
   if(!v||v===L.name){ inp.value=L.name; return; }
   if(store.list.some((x,i)=>x.name===v&&i!==store.cur)){ flash(`"${v}" is already used`,true); inp.value=L.name; return; }
   L.name=v; save(true); renderLayouts(); flash(`Renamed to "${v}"`); }
-const baseNote=()=>sync.code?'Changes are saved automatically and synced to your devices.':'Changes are saved automatically in this browser.';
+const baseNote=()=>'Changes are saved automatically.';
 function flash(msg,bad){ const n=q('#fl-saved'); n.textContent=msg; n.className='fl-saved '+(bad?'bad':'ok'); clearTimeout(flash.t); flash.t=setTimeout(()=>{ n.className='fl-saved'; n.textContent=baseNote(); },2500); }
 function savedNote(ok){ const n=q('#fl-saved'); if(!n||n.classList.contains('bad')) return; if(!ok) return flash('Could not save: browser storage is blocked (private window?)',true);
   if(n.classList.contains('ok')&&/Renamed/.test(n.textContent)) return; flash(`✓ Saved "${store.list[store.cur].name}"`); }
 const uniq=n=>{ let s=n, k=2; while(store.list.some(L=>L.name===s)) s=`${n} (${k++})`; return s; };
 
 /* ------------------------------------------------------------ sync across devices (Firebase Firestore)
-   One document per "space" (spaces/<code>) holds every layout by id. The code is long and random and only
-   travels in the sync link, so it is the key: the database rules refuse reads without it and refuse listing. */
+   Every device that opens the site shares one set of layouts, the document spaces/<SPACE>. The database
+   rules only allow a space to be read or written by its exact name: no listing, no deleting. */
 const FB={apiKey:'AIzaSyB8OeWPqJcOxq4-wPxqGzhToOjXn7q2TwY', authDomain:'skyline-views-d86a41.firebaseapp.com', projectId:'skyline-views-d86a41', appId:'1:325220433516:web:9908d7b6e81ac4f16da249'};
-const FBV='https://www.gstatic.com/firebasejs/11.0.2/', SYNCKEY='condo5ne.sync';
-const sync=window.__furnSync={pushes:0, code:null, ref:null, fs:null, ready:false, state:'off', err:'', pushed:{}, timer:null, unsub:null, open:false, joinOpen:false, busy:false};
+const FBV='https://www.gstatic.com/firebasejs/11.0.2/', SPACE=window.__syncSpace||'ShomeRLb2NBVkllB9WabiEqSwtbjS1oE';   // tests point __syncSpace at a scratch space
+const sync=window.__furnSync={pushes:0, ref:null, fs:null, db:null, ready:false, state:'connecting', err:'', pushed:{}, timer:null};
 const DEVICE=(()=>{ try{ let d=localStorage.getItem('condo5ne.device'); if(!d){ d=newId(); localStorage.setItem('condo5ne.device',d); } return d; }catch(_){ return newId(); } })();
-const codeOf=v=>{ const m=/(?:sync=)?([A-Za-z0-9]{24,64})\s*$/.exec((v||'').trim()); return m?m[1]:null; };
-try{ sync.code=localStorage.getItem(SYNCKEY); }catch(_){}
-{ const m=/[#&]sync=([A-Za-z0-9]{24,64})/.exec(location.hash);       // opened from a sync link
-  if(m){ sync.code=m[1]; try{ localStorage.setItem(SYNCKEY,sync.code); }catch(_){} try{ history.replaceState(null,'',location.pathname+location.search+'#plan'); }catch(_){} } }
-// from the online site, link to the page itself; from a local copy, to the public site (a phone can't open a file on this computer)
-const syncLink=()=>(location.protocol==='https:'?location.origin+location.pathname:'https://rammzes94.github.io/skyline-views-3d/')+'#sync='+sync.code;
+try{ localStorage.removeItem('condo5ne.sync'); }catch(_){}                                  // from the short-lived per-link sync
+if(/[#&]sync=/.test(location.hash)) try{ history.replaceState(null,'',location.pathname+location.search+'#plan'); }catch(_){}
 function setSync(state,err){ sync.state=state; sync.err=err?String(err.message||err).slice(0,140):''; renderSync(); }
 async function syncStart(){
-  if(!sync.code||sync.ref) return; setSync('connecting');
+  if(sync.ref) return; setSync('connecting');
   try{
     const [{initializeApp, getApps}, fs]=await Promise.all([import(FBV+'firebase-app.js'), import(FBV+'firebase-firestore.js')]);
     const app=getApps()[0]||initializeApp(FB); sync.fs=fs;
     const db=sync.db||(sync.db=fs.initializeFirestore(app,{ignoreUndefinedProperties:true}));
-    sync.ref=fs.doc(db,'spaces',sync.code);
-    sync.unsub=fs.onSnapshot(sync.ref, snap=>onRemote(snap), err=>{ setSync('error',err); });
-  }catch(e){ sync.ref=null; setSync('error',e); setTimeout(()=>{ if(sync.code&&!sync.ref) syncStart(); },15000); }
+    sync.ref=fs.doc(db,'spaces',SPACE);
+    fs.onSnapshot(sync.ref, snap=>onRemote(snap), err=>{ setSync('error',err); });
+  }catch(e){ sync.ref=null; setSync(navigator.onLine===false?'offline':'error',e); setTimeout(syncStart,15000); }
 }
-function syncStop(){ if(sync.unsub) sync.unsub(); clearTimeout(sync.timer); Object.assign(sync,{ref:null, unsub:null, ready:false, pushed:{}}); }
 function onRemote(snap){
   // (our own writes echo back too; their stamps match what we have, so applyRemote leaves them alone)
   const R=(snap.exists()&&snap.data().layouts)||{};
+  if(window.__syncDebug) console.log('[sync] in', snap.metadata.hasPendingWrites?'pending':'server', JSON.stringify(Object.fromEntries(Object.entries(R).map(([k,v])=>[k.slice(0,5),v.t%100000+':'+(v.items||[]).map(i=>i.id).join('+')]))), 'local', JSON.stringify(store.list.map(L=>L.id.slice(0,5)+'@'+L.t%100000)));
   for(const id in R) if(R[id]&&typeof R[id].t==='number') sync.pushed[id]=Math.max(sync.pushed[id]||0,R[id].t);
   applyRemote(R); sync.ready=true; if(sync.state!=='saving') setSync(navigator.onLine===false?'offline':'ok'); syncDirty(0);
 }
@@ -521,49 +514,23 @@ async function syncPush(){
   for(const [id,t] of Object.entries(store.gone)) if(t>(sync.pushed[id]||0)){ data.layouts[id]={del:true, t}; sent[id]=t; }
   const ids=Object.keys(sent); if(!ids.length) return;
   for(const id of ids){ fields.push(new fs.FieldPath('layouts',id)); sync.pushed[id]=sent[id]; }   // claimed now, so a second push doesn't resend
+  if(window.__syncDebug) console.log('[sync] out', JSON.stringify(Object.fromEntries(ids.map(id=>[id.slice(0,5),sent[id]%100000]))));
   sync.pushes++; data.updated=Date.now(); data.device=DEVICE; fields.push('updated','device');
   setSync(navigator.onLine===false?'offline':'saving');
   try{ await fs.setDoc(sync.ref,data,{mergeFields:fields}); if(sync.state==='saving'||sync.state==='offline') setSync('ok'); }
   catch(e){ for(const id of ids) if(sync.pushed[id]===sent[id]) sync.pushed[id]=0; setSync('error',e); syncDirty(10000); }
 }
-addEventListener('online',()=>{ if(sync.state==='offline') setSync('saving'); });
-addEventListener('offline',()=>{ if(sync.code) setSync('offline'); });
-function syncTurnOn(code){ syncStop(); sync.code=code||('S'+newId()+newId().slice(1)); try{ localStorage.setItem(SYNCKEY,sync.code); }catch(_){}
-  sync.joinOpen=false; sync.open=!code; q('#fl-saved').textContent=baseNote(); syncStart(); renderSync(); }
-function syncTurnOff(){ syncStop(); sync.code=null; sync.open=false; try{ localStorage.removeItem(SYNCKEY); }catch(_){} setSync('off'); q('#fl-saved').textContent=baseNote(); }
-let qrLib=null;
-function qrSvg(text){ if(!window.qrcode){ if(!qrLib){ qrLib=document.createElement('script'); qrLib.src='https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'; qrLib.onload=renderSync; document.head.appendChild(qrLib); } return '<span>Loading QR code…</span>'; }
-  const c=window.qrcode(0,'M'); c.addData(text); c.make(); return c.createSvgTag(4,2); }
+addEventListener('online',()=>{ if(sync.state==='offline') setSync(sync.ref?'saving':'connecting'); if(!sync.ref) syncStart(); else syncDirty(0); });
+addEventListener('offline',()=>setSync('offline'));
 function renderSync(){
   const el=q('#fl-sync'); if(!el) return;
-  if(!sync.code){
-    el.innerHTML=`<div class="st"><span class="dot"></span><span><b>Sync is off</b>: layouts are only in this browser.</span></div>
-      <div class="btns"><button class="btn sm" id="fs-on">Turn on sync</button><button class="btn sm" id="fs-join">Join with a link</button></div>
-      ${sync.joinOpen?`<input id="fs-link" placeholder="Paste the sync link here" autocomplete="off"><div class="btns"><button class="btn sm" id="fs-go">Join</button><button class="btn sm" id="fs-jx">Cancel</button></div>
-      <p>Get the link from <b>Add a device</b> on the device that already syncs.</p>`:''}`; return; }
-  const S={connecting:['busy','Connecting…'], ok:['ok','Synced across your devices'], saving:['busy','Syncing…'],
-    offline:['busy','Offline: saved here, syncs when you are back online'], error:['bad','Sync problem, saved here and retrying'], off:['','']}[sync.state]||['busy','Connecting…'];
-  el.innerHTML=`<div class="st"><span class="dot ${S[0]}"></span><b>${S[1]}</b></div>${sync.state==='error'&&sync.err?`<p>${esc(sync.err)}</p>`:''}
-    <div class="btns"><button class="btn sm" id="fs-add">${sync.open?'Hide':'Add a device'}</button><button class="btn sm" id="fs-off">Turn off here</button></div>
-    ${sync.open?`<div class="qr">${qrSvg(syncLink())}</div><p>Scan with the other device's camera, or open this link there:</p>
-      <input id="fs-url" readonly value="${esc(syncLink())}"><div class="btns"><button class="btn sm" id="fs-copy">Copy link</button></div>
-      <p>Using the site from your phone's home screen? Open it there and tap <b>Join with a link</b>, then paste the link. Anyone with the link can see and change these layouts.</p>`:''}`;
-}
-function syncClick(t){
-  if(t.id==='fs-on'){ syncTurnOn(); return true; }
-  if(t.id==='fs-join'){ sync.joinOpen=!sync.joinOpen; renderSync(); if(sync.joinOpen) q('#fs-link').focus(); return true; }
-  if(t.id==='fs-jx'){ sync.joinOpen=false; renderSync(); return true; }
-  if(t.id==='fs-go'){ const c=codeOf(q('#fs-link').value); if(!c){ t.textContent='Not a sync link'; setTimeout(()=>t.textContent='Join',1600); return true; } syncTurnOn(c); return true; }
-  if(t.id==='fs-add'){ sync.open=!sync.open; renderSync(); return true; }
-  if(t.id==='fs-off'){ if(t.dataset.arm!=='1'){ t.dataset.arm='1'; t.textContent='Sure? Layouts stay here'; setTimeout(()=>{ if(t.isConnected){ t.dataset.arm=''; t.textContent='Turn off here'; } },3000); return true; } syncTurnOff(); return true; }
-  if(t.id==='fs-copy'){ const u=syncLink(); const done=ok=>{ t.textContent=ok?'Copied':'Select it above and copy'; setTimeout(()=>t.textContent='Copy link',1600); if(!ok) q('#fs-url').select(); };
-    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(u).then(()=>done(true),()=>done(false)); else done(false); return true; }
-  return false;
+  const S={connecting:['busy','Connecting to sync…'], ok:['ok','Synced across your devices'], saving:['busy','Syncing…'],
+    offline:['busy','Offline: saved on this device, syncs when back online'], error:['bad','Sync problem: saved on this device, retrying']}[sync.state]||['busy','Connecting to sync…'];
+  el.innerHTML=`<span class="dot ${S[0]}"></span><span>${S[1]}</span>`; el.title=sync.err||'';
 }
 
 box.addEventListener('click',e=>{
   const t=e.target.closest('button'); if(!t) return;
-  if(syncClick(t)) return;
   if(t.id==='fl-ren'){ renameLayout(); return; }
   if(t.dataset.f){ todoOnly=t.dataset.f==='todo'; try{ localStorage.setItem('condo5ne.furnFilter',todoOnly?'todo':'all'); }catch(_){} renderList(); renderCard(); return; }
   if(t.dataset.place) addItem(t.dataset.place);
@@ -670,7 +637,7 @@ function hitClient(e){ if(mode!=='plan') return null; const p=planPoint(e); retu
 
 function fillNew(){ const k=KINDS.find(k=>k[0]===q('#fn-kind').value)||KINDS[0]; ['w','d','h'].forEach((x,i)=>q('#fn-'+x).value=Math.round(k[2][i]*2.54)); }
 fillNew();
-renderLayouts(); q('#fl-saved').textContent=baseNote(); renderSync(); if(sync.code) syncStart();
+renderLayouts(); q('#fl-saved').textContent=baseNote(); renderSync(); syncStart();
 for(const d of store.list[store.cur].items||[]){ if(!CATI[d.id]) continue; const inst=makeInst(d); placed.push(inst); }
 loadObstacles();
 for(const p of placed) rebuild(p);
